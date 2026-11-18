@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=2">
 </head>
 <body>
   <header class="app-header">
@@ -26,8 +26,11 @@
 
       <div class="header-tools">
         <span id="offline-badge" class="status-pill">Pronto Offline</span>
+        <button type="button" id="btn-internet-books" class="btn btn-internet">
+          🌐 Procurar Livros na Internet
+        </button>
         <button type="button" id="btn-add-book" class="btn btn-gold">
-          + Adicionar Livro ou História
+          + Adicionar História / Ficheiro (.txt)
         </button>
       </div>
     </div>
@@ -179,9 +182,47 @@
     </div>
   </div>
 
+  <!-- Modal Procurar Livros na Internet (Projeto Gutenberg / Gutendex) -->
+  <div id="internet-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="internet-heading">
+    <div class="modal-backdrop" data-close="internet"></div>
+    <div class="modal-card modal-wide">
+      <div class="modal-header">
+        <div>
+          <h2 id="internet-heading">🌐 Procurar Livros na Internet</h2>
+          <p class="modal-sub">Livros gratuitos em Português do Projeto Gutenberg para guardar offline</p>
+        </div>
+        <button type="button" class="close-btn" data-close="internet" aria-label="Fechar">✕</button>
+      </div>
+
+      <form id="internet-search-form" class="internet-search-bar">
+        <input
+          type="search"
+          id="internet-query"
+          placeholder="Escreve um autor ou título (ex: Eça de Queirós, Camilo...)"
+          autocomplete="off"
+          aria-label="Pesquisar no Projeto Gutenberg"
+        >
+        <button type="submit" class="btn btn-primary">🔍 Procurar</button>
+      </form>
+
+      <div class="suggestions-bar" aria-label="Sugestões rápidas">
+        <button type="button" class="chip-suggest" data-q="Romances">Romances</button>
+        <button type="button" class="chip-suggest" data-q="Contos">Contos</button>
+        <button type="button" class="chip-suggest" data-q="Júlio Dinis">Júlio Dinis</button>
+        <button type="button" class="chip-suggest" data-q="Eça de Queirós">Eça de Queirós</button>
+        <button type="button" class="chip-suggest" data-q="Camilo Castelo Branco">Camilo Castelo Branco</button>
+        <button type="button" class="chip-suggest" data-q="Florbela Espanca">Florbela Espanca</button>
+        <button type="button" class="chip-suggest" data-q="Machado de Assis">Machado de Assis</button>
+      </div>
+
+      <div id="internet-status" class="internet-status"></div>
+      <div id="internet-results" class="internet-results"></div>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="./books.js"></script>
-  <script src="./app.js"></script>
+  <script src="./books.js?v=2"></script>
+  <script src="./app.js?v=2"></script>
 </body>
 </html>

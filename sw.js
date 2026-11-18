@@ -1,11 +1,11 @@
-const CACHE_NAME = 'biblioteca-romances-v1';
+const CACHE_NAME = 'biblioteca-romances-v2';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css',
-  './books.js',
-  './app.js',
+  './styles.css?v=2',
+  './books.js?v=2',
+  './app.js?v=2',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png'

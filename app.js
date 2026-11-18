@@ -83,15 +83,25 @@
   const addCategory = document.getElementById('add-category');
   const addText = document.getElementById('add-text');
 
+  // Internet Search Modal DOM
+  const btnInternetBooks = document.getElementById('btn-internet-books');
+  const internetModal = document.getElementById('internet-modal');
+  const internetSearchForm = document.getElementById('internet-search-form');
+  const internetQuery = document.getElementById('internet-query');
+  const internetStatus = document.getElementById('internet-status');
+  const internetResults = document.getElementById('internet-results');
+  const suggestChips = document.querySelectorAll('.chip-suggest');
+
   const toastEl = document.getElementById('toast');
 
-  function init() {
+  async function init() {
     loadState();
     applyReaderPrefs();
     renderShelf();
     bindEvents();
     updateOnlineStatus();
     registerServiceWorker();
+    await loadBooksFromIdb();
   }
 
   function loadState() {
@@ -114,7 +124,70 @@
   }
 
   function saveUserBooks() {
-    localStorage.setItem(USER_BOOKS_KEY, JSON.stringify(userBooks));
+    try {
+      localStorage.setItem(USER_BOOKS_KEY, JSON.stringify(userBooks));
+    } catch (_) {
+      // Livros grandes ficam guardados no IndexedDB
+    }
+  }
+
+  // IndexedDB para livros completos offline (sem limite de 5MB do localStorage)
+  function openBooksDb() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error('IndexedDB indisponível'));
+      const req = indexedDB.open('biblioteca_offline_books_db', 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('books')) {
+          db.createObjectStore('books', { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function saveBookToIdb(book) {
+    try {
+      const db = await openBooksDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction('books', 'readwrite');
+        tx.objectStore('books').put(book);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (_) {}
+  }
+
+  async function deleteBookFromIdb(id) {
+    try {
+      const db = await openBooksDb();
+      const tx = db.transaction('books', 'readwrite');
+      tx.objectStore('books').delete(id);
+    } catch (_) {}
+  }
+
+  async function loadBooksFromIdb() {
+    try {
+      const db = await openBooksDb();
+      const idbBooks = await new Promise((resolve, reject) => {
+        const tx = db.transaction('books', 'readonly');
+        const req = tx.objectStore('books').getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+      if (Array.isArray(idbBooks) && idbBooks.length > 0) {
+        const existingIds = new Set(userBooks.map((b) => b.id));
+        let merged = false;
+        for (const b of idbBooks) {
+          if (b && b.id && !existingIds.has(b.id)) {
+            userBooks.unshift(b);
+            merged = true;
+          }
+        }
+        if (merged) renderShelf();
+      }
+    } catch (_) {}
   }
 
   function saveProgressMap() {
@@ -452,7 +525,31 @@
       });
     }
 
+    // Se um livro longo veio sem marcadores de capítulo, divide em partes legíveis (~5500 caracteres)
+    if (chapters.length === 1 && chapters[0].text.length > 7000) {
+      return splitLongTextIntoParts(chapters[0].text, 5500);
+    }
+
     return chapters;
+  }
+
+  function splitLongTextIntoParts(text, maxLen) {
+    const paragraphs = text.split(/\n{2,}/);
+    const parts = [];
+    let current = '';
+
+    for (const p of paragraphs) {
+      if ((current + '\n\n' + p).length > maxLen && current) {
+        parts.push({ title: `Parte ${parts.length + 1}`, text: current.trim() });
+        current = p;
+      } else {
+        current = current ? `${current}\n\n${p}` : p;
+      }
+    }
+    if (current.trim()) {
+      parts.push({ title: `Parte ${parts.length + 1}`, text: current.trim() });
+    }
+    return parts;
   }
 
   async function readZipEntries(arrayBuffer) {
@@ -641,6 +738,7 @@
       if (confirm(`Queres mesmo apagar "${activeBook.title}" da estante?`)) {
         userBooks = userBooks.filter((b) => b.id !== activeBook.id);
         delete progressMap[activeBook.id];
+        deleteBookFromIdb(activeBook.id);
         saveUserBooks();
         saveProgressMap();
         closeReader();
@@ -700,7 +798,7 @@
     btnPickFile.addEventListener('click', () => bookFileInput.click());
     bookFileInput.addEventListener('change', (e) => handleBookFile(e.target.files[0]));
 
-    addBookForm.addEventListener('submit', (e) => {
+    addBookForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const title = addTitle.value.trim();
       const author = addAuthor.value.trim() || 'Autoria Pessoal';
@@ -711,7 +809,7 @@
       const palette = COVER_PALETTES[userBooks.length % COVER_PALETTES.length];
       const emojiMap = { romances: '❤️', contos: '📖', classicos: '🇵🇹', especiais: '🌹' };
 
-      userBooks.unshift({
+      const newBook = {
         id: `user-${Date.now()}`,
         title,
         author,
@@ -720,32 +818,249 @@
         coverEmoji: emojiMap[addCategory.value] || '🌹',
         isUserBook: true,
         chapters
-      });
+      };
 
-      try {
-        saveUserBooks();
-        closeAddModal();
-        renderShelf();
-        showToast(`"${title}" guardado na estante!`);
-      } catch (_) {
-        userBooks.shift();
-        showToast('O livro é demasiado grande para a memória do navegador.');
-      }
+      userBooks.unshift(newBook);
+      await saveBookToIdb(newBook);
+      saveUserBooks();
+      closeAddModal();
+      renderShelf();
+      showToast(`"${title}" guardado na estante!`);
+    });
+
+    // Internet Search (Gutendex)
+    btnInternetBooks.addEventListener('click', openInternetModal);
+
+    internetSearchForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      searchGutendex(internetQuery.value.trim());
+    });
+
+    suggestChips.forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const q = chip.dataset.q || '';
+        internetQuery.value = q;
+        suggestChips.forEach((c) => c.classList.toggle('active', c === chip));
+        searchGutendex(q);
+      });
     });
 
     document.querySelectorAll('[data-close="add"]').forEach((el) => {
       el.addEventListener('click', closeAddModal);
     });
+    document.querySelectorAll('[data-close="internet"]').forEach((el) => {
+      el.addEventListener('click', closeInternetModal);
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (!addModal.classList.contains('hidden')) closeAddModal();
+        else if (!internetModal.classList.contains('hidden')) closeInternetModal();
         else if (!readerView.classList.contains('hidden')) closeReader();
       }
     });
 
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
+  }
+
+  // Internet Search & Download (Projeto Gutenberg / Gutendex)
+  function openInternetModal() {
+    internetModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    if (internetResults.children.length === 0) {
+      searchGutendex('');
+    }
+  }
+
+  function closeInternetModal() {
+    internetModal.classList.add('hidden');
+    if (readerView.classList.contains('hidden') && addModal.classList.contains('hidden')) {
+      document.body.style.overflow = '';
+    }
+  }
+
+  async function searchGutendex(query) {
+    internetStatus.textContent = 'A procurar livros gratuitos em Português...';
+    internetResults.innerHTML = '';
+
+    const url = query
+      ? `https://gutendex.com/books?languages=pt&search=${encodeURIComponent(query)}`
+      : 'https://gutendex.com/books?languages=pt';
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP error');
+      const data = await res.json();
+      const books = Array.isArray(data.results) ? data.results : [];
+
+      if (books.length === 0) {
+        internetStatus.textContent = 'Nenhum livro encontrado com essa pesquisa. Tenta outro nome ou sugestão.';
+        return;
+      }
+
+      internetStatus.textContent = `${books.length} ${books.length === 1 ? 'livro encontrado' : 'livros encontrados'} no Projeto Gutenberg:`;
+      renderGutendexResults(books);
+    } catch (_) {
+      internetStatus.textContent = 'Não foi possível contactar o Projeto Gutenberg. Verifica a ligação à internet.';
+    }
+  }
+
+  function pickGutenbergFormat(formats) {
+    if (!formats) return null;
+    const preferred = [
+      'text/plain; charset=utf-8',
+      'text/plain; charset=us-ascii',
+      'text/plain; charset=iso-8859-1',
+      'text/plain',
+      'text/html; charset=utf-8',
+      'text/html'
+    ];
+    for (const mime of preferred) {
+      if (formats[mime] && !formats[mime].endsWith('.zip')) {
+        return { url: formats[mime], isHtml: mime.includes('html') };
+      }
+    }
+    for (const [mime, u] of Object.entries(formats)) {
+      if ((mime.startsWith('text/plain') || mime.startsWith('text/html')) && u && !u.endsWith('.zip')) {
+        return { url: u, isHtml: mime.includes('html') };
+      }
+    }
+    return null;
+  }
+
+  function renderGutendexResults(books) {
+    const frag = document.createDocumentFragment();
+    const savedGutenbergIds = new Set(userBooks.map((b) => b.gutenbergId).filter(Boolean));
+
+    for (const b of books) {
+      const formatInfo = pickGutenbergFormat(b.formats);
+      if (!formatInfo) continue;
+
+      const card = document.createElement('div');
+      card.className = 'internet-book-card';
+
+      const authorNames =
+        Array.isArray(b.authors) && b.authors.length > 0
+          ? b.authors.map((a) => a.name).join(', ')
+          : 'Autor Desconhecido';
+
+      const info = document.createElement('div');
+      info.className = 'internet-book-info';
+      info.innerHTML = `
+        <h3 class="internet-book-title">${escapeHtml(b.title)}</h3>
+        <div class="internet-book-author">${escapeHtml(authorNames)}</div>
+      `;
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-download-book';
+
+      if (savedGutenbergIds.has(b.id)) {
+        btn.textContent = '✅ Já na Estante';
+        btn.disabled = true;
+      } else {
+        btn.textContent = '📥 Guardar na Minha Estante';
+        btn.addEventListener('click', () => downloadAndSaveGutenbergBook(b, authorNames, formatInfo, btn));
+      }
+
+      card.append(info, btn);
+      frag.appendChild(card);
+    }
+
+    internetResults.appendChild(frag);
+  }
+
+  async function fetchWithCorsFallback(targetUrl) {
+    const attempts = [
+      targetUrl,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`
+    ];
+
+    for (const attemptUrl of attempts) {
+      try {
+        const res = await fetch(attemptUrl);
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.length > 200) return text;
+        }
+      } catch (_) {}
+    }
+
+    throw new Error('Falha ao descarregar o livro.');
+  }
+
+  function cleanGutenbergText(raw, isHtml) {
+    let text = raw;
+    if (isHtml) {
+      const doc = new DOMParser().parseFromString(raw, 'text/html');
+      text = doc.body ? doc.body.innerText : raw;
+    }
+
+    text = text.replace(/\r\n/g, '\n');
+
+    const startMatch = text.match(/\*\*\*\s*START OF (THE|THIS) PROJECT GUTENBERG EBOOK[^\n]*\*\*\*/i);
+    if (startMatch) {
+      text = text.slice(startMatch.index + startMatch[0].length);
+    }
+
+    const endMatch = text.match(/\*\*\*\s*END OF (THE|THIS) PROJECT GUTENBERG EBOOK/i);
+    if (endMatch) {
+      text = text.slice(0, endMatch.index);
+    }
+
+    return text.replace(/\n{4,}/g, '\n\n\n').trim();
+  }
+
+  function guessBookCategory(gBook) {
+    const meta = `${gBook.title || ''} ${(gBook.subjects || []).join(' ')} ${(gBook.bookshelves || []).join(' ')}`.toLowerCase();
+    if (/(conto|short stories|fables|novela)/.test(meta)) return 'contos';
+    if (/(romance|love|amor|fiction)/.test(meta)) return 'romances';
+    return 'classicos';
+  }
+
+  async function downloadAndSaveGutenbergBook(gBook, authorNames, formatInfo, btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ A descarregar...';
+
+    try {
+      const raw = await fetchWithCorsFallback(formatInfo.url);
+      const cleanText = cleanGutenbergText(raw, formatInfo.isHtml);
+      const chapters = splitTextIntoChapters(cleanText);
+
+      if (chapters.length === 0) {
+        throw new Error('Texto vazio');
+      }
+
+      const category = guessBookCategory(gBook);
+      const emojiMap = { romances: '❤️', contos: '📖', classicos: '🇵🇹', especiais: '🌹' };
+      const palette = COVER_PALETTES[userBooks.length % COVER_PALETTES.length];
+
+      const newBook = {
+        id: `gutenberg-${gBook.id}`,
+        gutenbergId: gBook.id,
+        title: gBook.title,
+        author: authorNames,
+        category,
+        palette,
+        coverEmoji: emojiMap[category] || '📖',
+        isUserBook: true,
+        chapters
+      };
+
+      userBooks.unshift(newBook);
+      await saveBookToIdb(newBook);
+      saveUserBooks();
+      renderShelf();
+
+      btn.textContent = '✅ Já na Estante';
+      showToast(`"${gBook.title}" guardado offline (${chapters.length} capítulos)!`);
+    } catch (_) {
+      btn.disabled = false;
+      btn.textContent = '📥 Guardar na Minha Estante';
+      showToast('Não foi possível descarregar este livro. Tenta outro resultado.');
+    }
   }
 
   function escapeHtml(str) {
