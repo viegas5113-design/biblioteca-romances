@@ -1,14 +1,17 @@
-const CACHE_NAME = 'biblioteca-romances-v3';
+const CACHE_NAME = 'biblioteca-romances-v4';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=4',
-  './books.js?v=4',
-  './app.js?v=4',
+  './styles.css?v=5',
+  './books.js?v=5',
+  './app.js?v=5',
   './manifest.json',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
 ];
 
 self.addEventListener('install', (event) => {

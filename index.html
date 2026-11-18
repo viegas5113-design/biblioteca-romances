@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=4">
+  <link rel="stylesheet" href="./styles.css?v=5">
 </head>
 <body>
   <header class="app-header">
@@ -29,9 +29,13 @@
         <button type="button" id="btn-internet-books" class="btn btn-internet">
           🌐 Procurar Livros na Internet
         </button>
-        <button type="button" id="btn-add-book" class="btn btn-gold">
-          + Adicionar História / Ficheiro (.txt)
+        <button type="button" id="btn-import-device" class="btn btn-gold">
+          📂 Importar Livro do Aparelho (.EPUB / .PDF / .TXT)
         </button>
+        <button type="button" id="btn-add-book" class="btn btn-secondary">
+          + Escrever / Colar História
+        </button>
+        <input type="file" id="device-file-input" accept=".epub,.pdf,.txt,application/epub+zip,application/pdf,text/plain" class="hidden">
       </div>
     </div>
   </header>
@@ -140,9 +144,9 @@
       </div>
 
       <div class="import-box">
-        <p>Importar ficheiro do tablet ou computador (<strong>.txt</strong> ou <strong>.epub</strong>):</p>
-        <button type="button" id="btn-pick-file" class="btn btn-secondary">📥 Escolher Ficheiro (.txt / .epub)</button>
-        <input type="file" id="book-file-input" accept=".txt,.epub,text/plain,application/epub+zip" class="hidden">
+        <p>Importar ficheiro do tablet ou computador (<strong>.epub</strong>, <strong>.pdf</strong> ou <strong>.txt</strong>):</p>
+        <button type="button" id="btn-pick-file" class="btn btn-secondary">📥 Escolher Ficheiro (.EPUB / .PDF / .TXT)</button>
+        <input type="file" id="book-file-input" accept=".txt,.epub,.pdf,text/plain,application/epub+zip,application/pdf" class="hidden">
         <span id="import-file-status" class="import-status"></span>
       </div>
 
@@ -188,8 +192,8 @@
     <div class="modal-card modal-wide">
       <div class="modal-header">
         <div>
-          <h2 id="internet-heading">🌐 Procurar Livros na Internet</h2>
-          <p class="modal-sub">Livros gratuitos em Português do Projeto Gutenberg para guardar offline</p>
+          <h2 id="internet-heading">🌐 Procurar Livros Recentes na Internet</h2>
+          <p class="modal-sub">Pesquisa no Open Library ordenada pelos livros mais recentes</p>
         </div>
         <button type="button" class="close-btn" data-close="internet" aria-label="Fechar">✕</button>
       </div>
@@ -198,30 +202,28 @@
         <input
           type="search"
           id="internet-query"
-          placeholder="Escreve um autor ou título (ex: Jane Austen, Eça de Queirós, Júlio Verne...)"
+          placeholder="Escreve um tema, título ou autor atual..."
           autocomplete="off"
-          aria-label="Pesquisar livros na internet"
+          aria-label="Pesquisar livros recentes no Open Library"
         >
         <button type="submit" class="btn btn-primary">🔍 Procurar</button>
       </form>
 
       <div class="lang-bar" aria-label="Idioma da pesquisa">
-        <button type="button" class="lang-btn active" data-lang="all">🌍 Universal</button>
-        <button type="button" class="lang-btn" data-lang="pt">🇵🇹 Português</button>
+        <button type="button" class="lang-btn active" data-lang="pt">🇵🇹 Português</button>
+        <button type="button" class="lang-btn" data-lang="all">🌍 Todos</button>
         <button type="button" class="lang-btn" data-lang="en">🇬🇧 Inglês</button>
         <button type="button" class="lang-btn" data-lang="es">🇪🇸 Espanhol</button>
         <button type="button" class="lang-btn" data-lang="fr">🇫🇷 Francês</button>
       </div>
 
-      <div class="suggestions-bar" aria-label="Sugestões rápidas">
-        <button type="button" class="chip-suggest" data-q="Romances Clássicos">❤️ Romances Clássicos</button>
-        <button type="button" class="chip-suggest" data-q="Eça de Queirós">🇵🇹 Eça de Queirós</button>
-        <button type="button" class="chip-suggest" data-q="Júlio Dinis">🇵🇹 Júlio Dinis</button>
-        <button type="button" class="chip-suggest" data-q="Camilo Castelo Branco">🇵🇹 Camilo Castelo Branco</button>
-        <button type="button" class="chip-suggest" data-q="Jane Austen">🌍 Jane Austen</button>
-        <button type="button" class="chip-suggest" data-q="Alexandre Dumas">🌍 Alexandre Dumas</button>
-        <button type="button" class="chip-suggest" data-q="Júlio Verne">🌍 Júlio Verne</button>
-        <button type="button" class="chip-suggest" data-q="Victor Hugo">🌍 Victor Hugo</button>
+      <div class="suggestions-bar" aria-label="Sugestões de géneros atuais">
+        <button type="button" class="chip-suggest" data-q="Romance Contemporâneo">💕 Romance Contemporâneo</button>
+        <button type="button" class="chip-suggest" data-q="Mistério & Suspense">🕵️ Mistério &amp; Suspense</button>
+        <button type="button" class="chip-suggest" data-q="Histórias de Família">🏡 Histórias de Família</button>
+        <button type="button" class="chip-suggest" data-q="Viagens & Aventura">🌊 Viagens &amp; Aventura</button>
+        <button type="button" class="chip-suggest" data-q="Best-sellers Recentes">✨ Best-sellers Recentes</button>
+        <button type="button" class="chip-suggest" data-q="Contos Modernos">📖 Contos Modernos</button>
       </div>
 
       <div id="internet-status" class="internet-status"></div>
@@ -231,7 +233,9 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="./books.js?v=4"></script>
-  <script src="./app.js?v=4"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+  <script src="./books.js?v=5"></script>
+  <script src="./app.js?v=5"></script>
 </body>
 </html>

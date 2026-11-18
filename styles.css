@@ -862,8 +862,25 @@ body {
   border-radius: 14px;
 }
 
+.internet-book-cover {
+  width: 64px;
+  height: 92px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
 .internet-book-info {
-  flex: 1 1 260px;
+  flex: 1 1 230px;
+}
+
+.internet-book-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .internet-book-title {
@@ -886,7 +903,7 @@ body {
   color: #ffffff;
   border-radius: 12px;
   border: none;
-  font-size: 0.98rem;
+  font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -894,4 +911,19 @@ body {
 .btn-download-book:disabled {
   background: #64748b;
   cursor: default;
+}
+
+.btn-online-book {
+  min-height: 48px;
+  padding: 10px 16px;
+  background: var(--surface-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }

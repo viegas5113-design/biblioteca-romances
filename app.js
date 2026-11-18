@@ -71,7 +71,9 @@
   const btnTtsStop = document.getElementById('btn-tts-stop');
   const ttsStatus = document.getElementById('tts-status');
 
-  // Add Book Modal DOM
+  // Add Book & Device Import DOM
+  const btnImportDevice = document.getElementById('btn-import-device');
+  const deviceFileInput = document.getElementById('device-file-input');
   const btnAddBook = document.getElementById('btn-add-book');
   const addModal = document.getElementById('add-modal');
   const btnPickFile = document.getElementById('btn-pick-file');
@@ -92,7 +94,7 @@
   const internetResults = document.getElementById('internet-results');
   const suggestChips = document.querySelectorAll('.chip-suggest');
   const langButtons = document.querySelectorAll('.lang-btn');
-  let selectedInternetLang = 'all';
+  let selectedInternetLang = 'pt';
 
   const toastEl = document.getElementById('toast');
 
@@ -598,7 +600,108 @@
     return '';
   }
 
-  async function parseEpubFile(file) {
+  async function parseEpubWithJsZip(file) {
+    if (typeof window.JSZip === 'undefined') {
+      return parseEpubFallback(file);
+    }
+
+    const zip = await window.JSZip.loadAsync(file);
+    const parser = new DOMParser();
+
+    let opfPath = '';
+    const containerFile = zip.file('META-INF/container.xml');
+    if (containerFile) {
+      const containerXml = await containerFile.async('string');
+      const doc = parser.parseFromString(containerXml, 'application/xml');
+      const rf = doc.querySelector('rootfile');
+      if (rf) opfPath = rf.getAttribute('full-path') || '';
+    }
+
+    if (!opfPath) {
+      const opfKeys = Object.keys(zip.files).filter((k) => k.endsWith('.opf'));
+      if (opfKeys.length > 0) opfPath = opfKeys[0];
+    }
+
+    let title = file.name.replace(/\.epub$/i, '');
+    let author = 'Autor Desconhecido';
+    const chapters = [];
+
+    if (opfPath && zip.file(opfPath)) {
+      const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+      const opfXml = await zip.file(opfPath).async('string');
+      const opfDoc = parser.parseFromString(opfXml, 'application/xml');
+
+      const titleEl = opfDoc.getElementsByTagName('dc:title')[0] || opfDoc.querySelector('title');
+      if (titleEl && titleEl.textContent.trim()) title = titleEl.textContent.trim();
+
+      const authorEl = opfDoc.getElementsByTagName('dc:creator')[0] || opfDoc.querySelector('creator');
+      if (authorEl && authorEl.textContent.trim()) author = authorEl.textContent.trim();
+
+      const manifestMap = new Map();
+      opfDoc.querySelectorAll('manifest > item').forEach((item) => {
+        manifestMap.set(item.getAttribute('id'), item.getAttribute('href'));
+      });
+
+      const spineRefs = Array.from(opfDoc.querySelectorAll('spine > itemref')).map((ref) => ref.getAttribute('idref'));
+      for (const idref of spineRefs) {
+        const href = manifestMap.get(idref);
+        if (!href) continue;
+        const fullHref = decodeURIComponent(opfDir + href);
+        const zipEntry = zip.file(fullHref) || zip.file(href);
+        if (!zipEntry) continue;
+
+        const html = await zipEntry.async('string');
+        const htmlDoc = parser.parseFromString(html, 'text/html');
+        const bodyText = htmlDoc.body ? htmlDoc.body.innerText.trim() : '';
+        if (bodyText.length < 40) continue;
+
+        const hEl = htmlDoc.querySelector('h1, h2, h3');
+        const chapTitle = hEl && hEl.textContent.trim() ? hEl.textContent.trim() : `Capítulo ${chapters.length + 1}`;
+        chapters.push({ title: chapTitle, text: bodyText });
+      }
+    }
+
+    return { title, author, chapters };
+  }
+
+  async function parsePdfFile(file) {
+    if (typeof window.pdfjsLib === 'undefined') {
+      throw new Error('PDF.js não disponível');
+    }
+
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const buf = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    const pagesPerChapter = 8;
+    const chapters = [];
+    let pageTexts = [];
+
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      const strings = content.items.map((it) => it.str);
+      const text = strings.join(' ').replace(/\s+/g, ' ').trim();
+      if (text) pageTexts.push(text);
+
+      if (pageTexts.length >= pagesPerChapter || p === pdf.numPages) {
+        if (pageTexts.length > 0) {
+          const startPage = p - pageTexts.length + 1;
+          chapters.push({
+            title: `Parte ${chapters.length + 1} (Págs. ${startPage}–${p})`,
+            text: pageTexts.join('\n\n')
+          });
+          pageTexts = [];
+        }
+      }
+    }
+
+    const title = file.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim() || 'Livro PDF';
+    return { title, author: 'Livro Importado (.PDF)', chapters };
+  }
+
+  async function parseEpubFallback(file) {
     const buf = await file.arrayBuffer();
     const entries = await readZipEntries(buf);
     const parser = new DOMParser();
@@ -689,7 +792,7 @@
 
     try {
       if (ext === 'epub') {
-        const parsed = await parseEpubFile(file);
+        const parsed = await parseEpubWithJsZip(file);
         if (parsed.chapters.length === 0) {
           importFileStatus.textContent = 'Não foi possível extrair capítulos deste EPUB.';
           return;
@@ -698,6 +801,16 @@
         addAuthor.value = parsed.author;
         addText.value = parsed.chapters.map((c) => `${c.title}\n\n${c.text}`).join('\n\n');
         importFileStatus.textContent = `EPUB carregado (${parsed.chapters.length} capítulos)! Carrega em "Guardar na Estante".`;
+      } else if (ext === 'pdf') {
+        const parsed = await parsePdfFile(file);
+        if (parsed.chapters.length === 0) {
+          importFileStatus.textContent = 'Não foi possível extrair texto deste PDF.';
+          return;
+        }
+        addTitle.value = parsed.title;
+        addAuthor.value = parsed.author;
+        addText.value = parsed.chapters.map((c) => `${c.title}\n\n${c.text}`).join('\n\n');
+        importFileStatus.textContent = `PDF carregado (${parsed.chapters.length} partes)! Carrega em "Guardar na Estante".`;
       } else {
         const text = await file.text();
         addTitle.value = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
@@ -707,6 +820,63 @@
       }
     } catch (_) {
       importFileStatus.textContent = 'Erro ao ler o ficheiro selecionado.';
+    }
+  }
+
+  async function importDeviceFileDirectly(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    showToast(`A importar "${file.name}"...`);
+
+    try {
+      let title = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+      let author = 'Livro do Aparelho';
+      let chapters = [];
+
+      if (ext === 'epub') {
+        const parsed = await parseEpubWithJsZip(file);
+        title = parsed.title || title;
+        author = parsed.author || author;
+        chapters = parsed.chapters;
+      } else if (ext === 'pdf') {
+        const parsed = await parsePdfFile(file);
+        title = parsed.title || title;
+        author = parsed.author || author;
+        chapters = parsed.chapters;
+      } else {
+        const text = await file.text();
+        chapters = splitTextIntoChapters(text);
+      }
+
+      if (!chapters || chapters.length === 0) {
+        showToast('Não foi possível extrair texto deste ficheiro.');
+        return;
+      }
+
+      const category = activeCategory !== 'todos' && activeCategory !== 'lendo' ? activeCategory : 'especiais';
+      const emojiMap = { romances: '❤️', contos: '📖', classicos: '🇵🇹', especiais: '🌹' };
+      const palette = COVER_PALETTES[userBooks.length % COVER_PALETTES.length];
+
+      const newBook = {
+        id: `device-${Date.now()}`,
+        title,
+        author,
+        category,
+        palette,
+        coverEmoji: emojiMap[category] || '📖',
+        isUserBook: true,
+        chapters
+      };
+
+      userBooks.unshift(newBook);
+      await saveBookToIdb(newBook);
+      saveUserBooks();
+      renderShelf();
+      showToast(`"${title}" importado offline (${chapters.length} capítulos)!`);
+    } catch (_) {
+      showToast('Erro ao importar este ficheiro. Verifica se é .EPUB, .PDF ou .TXT válido.');
+    } finally {
+      deviceFileInput.value = '';
     }
   }
 
@@ -796,6 +966,8 @@
     btnTtsPause.addEventListener('click', togglePauseTts);
     btnTtsStop.addEventListener('click', stopTts);
 
+    btnImportDevice.addEventListener('click', () => deviceFileInput.click());
+    deviceFileInput.addEventListener('change', (e) => importDeviceFileDirectly(e.target.files[0]));
     btnAddBook.addEventListener('click', openAddModal);
     btnPickFile.addEventListener('click', () => bookFileInput.click());
     bookFileInput.addEventListener('change', (e) => handleBookFile(e.target.files[0]));
@@ -916,137 +1088,59 @@
 
   function mapSearchQuery(rawQuery) {
     const q = (rawQuery || '').trim();
-    if (!q) return selectedInternetLang === 'pt' ? 'Eça de Queirós' : 'romance';
-    if (q.toLowerCase() === 'romances clássicos') {
-      return selectedInternetLang === 'pt' ? 'romance' : 'classic romance';
-    }
-    return q;
-  }
-
-  function isPortugalAuthor(authorStr) {
-    const a = String(authorStr || '').toLowerCase();
-    return PORTUGAL_AUTHORS.some((p) => a.includes(p));
-  }
-
-  function isBrazilianRegional(item, explicitQuery) {
-    const qLower = (explicitQuery || '').toLowerCase();
-    const combined = `${item.title || ''} ${item.author || ''}`.toLowerCase();
-    return BRAZIL_REGIONAL_TERMS.some((term) => combined.includes(term) && !qLower.includes(term));
+    if (!q) return 'romance';
+    const map = {
+      'romance contemporâneo': 'contemporary romance',
+      'mistério & suspense': 'mystery suspense',
+      'histórias de família': 'family saga fiction',
+      'viagens & aventura': 'travel adventure',
+      'best-sellers recentes': 'bestseller fiction',
+      'contos modernos': 'modern short stories'
+    };
+    return map[q.toLowerCase()] || q;
   }
 
   async function searchUniversalBooks(rawQuery) {
     const query = mapSearchQuery(rawQuery);
-    internetStatus.textContent = 'A pesquisar em catálogos universais...';
+    internetStatus.textContent = 'A procurar livros recentes no Open Library...';
     internetResults.innerHTML = '';
 
     const olLangMap = { pt: 'por', en: 'eng', es: 'spa', fr: 'fre' };
-    const wikiLang = selectedInternetLang === 'all' ? 'pt' : selectedInternetLang;
+    const langParam = selectedInternetLang !== 'all' ? `&language=${olLangMap[selectedInternetLang]}` : '';
+    const olUrl = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}${langParam}&has_fulltext=true&sort=new&limit=20`;
 
-    const gutendexUrl =
-      selectedInternetLang === 'all'
-        ? `https://gutendex.com/books?search=${encodeURIComponent(query)}`
-        : `https://gutendex.com/books?languages=${selectedInternetLang}&search=${encodeURIComponent(query)}`;
+    try {
+      const res = await fetchWithTimeout(olUrl, 8000);
+      if (!res.ok) throw new Error('HTTP error');
+      const data = await res.json();
+      const docs = Array.isArray(data.docs) ? data.docs : [];
 
-    const olUrl =
-      selectedInternetLang === 'all'
-        ? `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&has_fulltext=true&limit=14`
-        : `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&language=${olLangMap[selectedInternetLang]}&has_fulltext=true&limit=14`;
-
-    const wikiUrl = `https://${wikiLang}.wikisource.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=10&format=json&origin=*`;
-
-    const [gutRes, olRes, wikiRes] = await Promise.allSettled([
-      fetchWithTimeout(gutendexUrl, 4500).then((r) => (r.ok ? r.json() : null)),
-      fetchWithTimeout(olUrl, 6000).then((r) => (r.ok ? r.json() : null)),
-      fetchWithTimeout(wikiUrl, 5000).then((r) => (r.ok ? r.json() : null))
-    ]);
-
-    let results = [];
-    const seenTitles = new Set();
-
-    // 1. Gutendex
-    if (gutRes.status === 'fulfilled' && Array.isArray(gutRes.value?.results)) {
-      for (const b of gutRes.value.results) {
-        const formatInfo = pickGutenbergFormat(b.formats);
-        if (!formatInfo) continue;
-        const authorNames =
-          Array.isArray(b.authors) && b.authors.length > 0
-            ? b.authors.map((a) => a.name).join(', ')
-            : 'Autor Desconhecido';
-        const key = `${b.title}::${authorNames}`.toLowerCase();
-        if (seenTitles.has(key)) continue;
-        seenTitles.add(key);
-
-        results.push({
-          source: 'gutendex',
-          id: `gutenberg-${b.id}`,
-          gutenbergId: b.id,
-          title: b.title,
-          author: authorNames,
-          subjects: b.subjects || [],
-          bookshelves: b.bookshelves || [],
-          formatInfo,
-          badge: 'Projeto Gutenberg'
-        });
+      if (docs.length === 0) {
+        internetStatus.textContent = 'Nenhum livro encontrado com esse termo. Tenta outro género ou idioma.';
+        return;
       }
-    }
 
-    // 2. Open Library (com texto completo no Internet Archive)
-    if (olRes.status === 'fulfilled' && Array.isArray(olRes.value?.docs)) {
-      for (const d of olRes.value.docs) {
+      const results = docs.map((d, idx) => {
         const iaId = Array.isArray(d.ia) && d.ia.length > 0 ? d.ia[0] : null;
-        if (!iaId) continue;
         const authorNames = Array.isArray(d.author_name) ? d.author_name.join(', ') : 'Autor Desconhecido';
-        const key = `${d.title}::${authorNames}`.toLowerCase();
-        if (seenTitles.has(key)) continue;
-        seenTitles.add(key);
-
-        results.push({
+        const coverUrl = d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : '';
+        return {
           source: 'archive',
-          id: `ol-${iaId}`,
+          id: iaId ? `ol-${iaId}` : `ol-key-${d.key || idx}`,
           identifier: iaId,
-          title: d.title,
+          onlineUrl: d.key ? `https://openlibrary.org${d.key}` : (iaId ? `https://archive.org/details/${iaId}` : ''),
+          title: d.title || 'Sem Título',
           author: authorNames,
-          badge: 'Open Library'
-        });
-      }
-    }
-
-    // 3. WikiSource (PT / EN / ES / FR)
-    if (wikiRes.status === 'fulfilled' && Array.isArray(wikiRes.value?.query?.search)) {
-      for (const w of wikiRes.value.query.search) {
-        const key = `${w.title}`.toLowerCase();
-        if (seenTitles.has(key)) continue;
-        seenTitles.add(key);
-
-        results.push({
-          source: 'wikisource',
-          wikiLang,
-          id: `wiki-${wikiLang}-${w.pageid}`,
-          pageTitle: w.title,
-          title: w.title,
-          author: `WikiSource (${wikiLang.toUpperCase()})`,
-          badge: 'WikiSource'
-        });
-      }
-    }
-
-    // Filtro e ordenação para Português (Portugal primeiro, sem foco regional brasileiro)
-    if (selectedInternetLang === 'pt') {
-      results = results.filter((item) => !isBrazilianRegional(item, rawQuery));
-      results.sort((a, b) => {
-        const aPt = isPortugalAuthor(a.author) || isPortugalAuthor(a.title) ? 1 : 0;
-        const bPt = isPortugalAuthor(b.author) || isPortugalAuthor(b.title) ? 1 : 0;
-        return bPt - aPt;
+          year: d.first_publish_year || '',
+          coverUrl
+        };
       });
-    }
 
-    if (results.length === 0) {
-      internetStatus.textContent = 'Nenhum livro encontrado com essa pesquisa. Tenta outro termo ou idioma.';
-      return;
+      internetStatus.textContent = `${results.length} livros encontrados (ordenados pelos mais recentes):`;
+      renderUniversalResults(results);
+    } catch (_) {
+      internetStatus.textContent = 'Não foi possível contactar o Open Library. Verifica a ligação à internet.';
     }
-
-    internetStatus.textContent = `${results.length} ${results.length === 1 ? 'obra encontrada' : 'obras encontradas'} (prontas a guardar offline):`;
-    renderUniversalResults(results);
   }
 
   function pickGutenbergFormat(formats) {
@@ -1080,26 +1174,53 @@
       const card = document.createElement('div');
       card.className = 'internet-book-card';
 
-      const info = document.createElement('div');
-      info.className = 'internet-book-info';
-      info.innerHTML = `
-        <h3 class="internet-book-title">${escapeHtml(item.title)}</h3>
-        <div class="internet-book-author">${escapeHtml(item.author)} · <small>${escapeHtml(item.badge)}</small></div>
-      `;
-
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn-download-book';
-
-      if (savedIds.has(item.id)) {
-        btn.textContent = '✅ Já na Estante';
-        btn.disabled = true;
-      } else {
-        btn.textContent = '📥 Guardar na Minha Estante';
-        btn.addEventListener('click', () => downloadAndSaveUniversalBook(item, btn));
+      if (item.coverUrl) {
+        const img = document.createElement('img');
+        img.className = 'internet-book-cover';
+        img.src = item.coverUrl;
+        img.alt = `Capa de ${item.title}`;
+        img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        card.appendChild(img);
       }
 
-      card.append(info, btn);
+      const info = document.createElement('div');
+      info.className = 'internet-book-info';
+      const yearTxt = item.year ? ` · ${item.year}` : '';
+      info.innerHTML = `
+        <h3 class="internet-book-title">${escapeHtml(item.title)}</h3>
+        <div class="internet-book-author">${escapeHtml(item.author)}${escapeHtml(yearTxt)}</div>
+      `;
+
+      const actions = document.createElement('div');
+      actions.className = 'internet-book-actions';
+
+      if (item.identifier) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-download-book';
+
+        if (savedIds.has(item.id)) {
+          btn.textContent = '✅ Já na Estante';
+          btn.disabled = true;
+        } else {
+          btn.textContent = '📥 Guardar na Estante';
+          btn.addEventListener('click', () => downloadAndSaveUniversalBook(item, btn));
+        }
+        actions.appendChild(btn);
+      }
+
+      if (item.onlineUrl) {
+        const link = document.createElement('a');
+        link.className = 'btn-online-book';
+        link.href = item.onlineUrl;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = '🔗 Abrir Livro Online';
+        actions.appendChild(link);
+      }
+
+      card.append(info, actions);
       frag.appendChild(card);
     }
 
