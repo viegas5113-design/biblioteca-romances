@@ -72,6 +72,7 @@
   const ttsStatus = document.getElementById('tts-status');
 
   // Add Book & Device Import DOM
+  const btnMyShelf = document.getElementById('btn-my-shelf');
   const btnImportDevice = document.getElementById('btn-import-device');
   const deviceFileInput = document.getElementById('device-file-input');
   const btnAddBook = document.getElementById('btn-add-book');
@@ -93,8 +94,6 @@
   const internetStatus = document.getElementById('internet-status');
   const internetResults = document.getElementById('internet-results');
   const suggestChips = document.querySelectorAll('.chip-suggest');
-  const langButtons = document.querySelectorAll('.lang-btn');
-  let selectedInternetLang = 'pt';
 
   const toastEl = document.getElementById('toast');
 
@@ -966,6 +965,22 @@
     btnTtsPause.addEventListener('click', togglePauseTts);
     btnTtsStop.addEventListener('click', stopTts);
 
+    if (btnMyShelf) {
+      btnMyShelf.addEventListener('click', () => {
+        if (!addModal.classList.contains('hidden')) closeAddModal();
+        if (!internetModal.classList.contains('hidden')) closeInternetModal();
+        if (!readerView.classList.contains('hidden')) closeReader();
+        activeCategory = 'todos';
+        catButtons.forEach((b) => b.classList.toggle('active', b.dataset.cat === 'todos'));
+        searchInput.value = '';
+        searchQuery = '';
+        btnClearSearch.classList.add('hidden');
+        renderShelf();
+        const mainEl = document.querySelector('.app-main');
+        if (mainEl) mainEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+
     btnImportDevice.addEventListener('click', () => deviceFileInput.click());
     deviceFileInput.addEventListener('change', (e) => importDeviceFileDirectly(e.target.files[0]));
     btnAddBook.addEventListener('click', openAddModal);
@@ -1019,14 +1034,6 @@
       });
     });
 
-    langButtons.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        selectedInternetLang = btn.dataset.lang || 'all';
-        langButtons.forEach((b) => b.classList.toggle('active', b === btn));
-        searchUniversalBooks(internetQuery.value.trim());
-      });
-    });
-
     document.querySelectorAll('[data-close="add"]').forEach((el) => {
       el.addEventListener('click', closeAddModal);
     });
@@ -1046,19 +1053,30 @@
     window.addEventListener('offline', updateOnlineStatus);
   }
 
-  // Internet Search & Download (Universal: Gutendex + Open Library + WikiSource)
+  // Internet Search & Download (Universal em Português: Gutendex + Internet Archive + Open Library)
   const PORTUGAL_AUTHORS = [
-    'eça de queirós', 'queirós', 'queiroz', 'camilo castelo branco', 'castelo branco',
-    'júlio dinis', 'dinis', 'florbela espanca', 'almeida garrett', 'garrett',
-    'fernando pessoa', 'camões', 'antero de quental', 'cesário verde',
-    'bocage', 'ramalho ortigão', 'fialho de almeida', 'alexandre herculano', 'aquilino ribeiro'
+    'eça de queirós', 'eca de queiros', 'queirós', 'queiroz',
+    'camilo castelo branco', 'castelo branco',
+    'júlio dinis', 'julio dinis', 'florbela espanca',
+    'almeida garrett', 'garrett', 'fernando pessoa',
+    'camões', 'camoes', 'antero de quental', 'cesário verde', 'cesario verde',
+    'bocage', 'ramalho ortigão', 'ramalho ortigao', 'fialho de almeida',
+    'alexandre herculano', 'aquilino ribeiro', 'teixeira de pascoaes',
+    'guerra junqueiro', 'soares de passos', 'oliveira martins',
+    'antónio nobre', 'antonio nobre', 'gil vicente', 'fernão mendes pinto',
+    'antónio vieira', 'antonio vieira', 'sophia de mello breyner', 'vergílio ferreira'
+  ];
+
+  const PORTUGAL_EDITION_TERMS = [
+    'lisboa', 'porto', 'coimbra', 'portugal', 'portuguesa', 'português', 'portugues',
+    'lello', 'bertrand', 'parceria a. m. pereira', 'guimarães editores', 'clássica editora'
   ];
 
   const BRAZIL_REGIONAL_TERMS = [
-    'machado de assis', 'josé de alencar', 'aluísio azevedo', 'lima barreto',
-    'graça aranha', 'olavo bilac', 'coelho neto', 'raúl pompéia', 'euclides da cunha',
+    'machado de assis', 'josé de alencar', 'jose de alencar', 'aluísio azevedo', 'aluisio azevedo',
+    'lima barreto', 'graça aranha', 'olavo bilac', 'coelho neto', 'raúl pompéia', 'euclides da cunha',
     'dom casmurro', 'memórias póstumas', 'quincas borba', 'iracema', 'o cortiço', 'o guarani',
-    'senhora', 'a moreninha', 'triste fim de policarpo'
+    'senhora', 'a moreninha', 'triste fim de policarpo', 'rio de janeiro', 'são paulo'
   ];
 
   function openInternetModal() {
@@ -1076,7 +1094,7 @@
     }
   }
 
-  async function fetchWithTimeout(url, ms = 4500) {
+  async function fetchWithTimeout(url, ms = 7000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     try {
@@ -1086,61 +1104,224 @@
     }
   }
 
+  function isLikelyForeignTitle(title, author = '') {
+    const cleanTitle = (title || '').toLowerCase().trim();
+    const combined = `${cleanTitle} ${author || ''}`.toLowerCase().trim();
+    if (!cleanTitle) return true;
+    const hasPtMarkers = /[ãõçáéíóúâêôà]|\b(o|a|os|as|um|uma|de|do|da|dos|das|em|no|na|para|com|por|que|história|contos|romance|poesia|amor|viagens|mar)\b/i.test(combined);
+    const hasForeignStopwords = /\b(the|and|with|from|into|about|which|their|there|would|could|should|chapter|complete|edition|translated|translation|volume|vol\.|part|story|stories|tales|novel|poems|love|adventures|les|des|une|dans|avec|pour|sur|par|qui|est|et|histoire|littérature|géographie|mélanges|contes|roman|amour|los|las|del|una|por|para|con|sobre|entre|historia|cuentos|novela|novelas|libro|die|der|und|ein|eine|mit|für|von|das)\b/i.test(cleanTitle);
+    if (hasForeignStopwords && !/[ãõç]/.test(cleanTitle)) {
+      const strongPtTitle = /\b(não|são|coração|paixão|história|histórias|português|portuguesa|portugal|lisboa|conto|contos|poesias|sonetos|cartas|viagens|senhora|menina|irmãos|amor de|cidade e as|pupilas|crime do|primo basílio)\b/i.test(cleanTitle);
+      if (!strongPtTitle) return true;
+    }
+    return !hasPtMarkers && hasForeignStopwords;
+  }
+
+  function scorePortugalPriority(item) {
+    const text = `${item.title || ''} ${item.author || ''} ${item.publisher || ''}`.toLowerCase();
+    let score = 0;
+    if (PORTUGAL_AUTHORS.some((a) => text.includes(a))) score += 100;
+    if (PORTUGAL_EDITION_TERMS.some((t) => text.includes(t))) score += 40;
+    if (item.source === 'gutendex') score += 15;
+    if (BRAZIL_REGIONAL_TERMS.some((b) => text.includes(b))) score -= 30;
+    return score;
+  }
+
   function mapSearchQuery(rawQuery) {
     const q = (rawQuery || '').trim();
-    if (!q) return 'romance';
-    const map = {
-      'romance contemporâneo': 'contemporary romance',
-      'mistério & suspense': 'mystery suspense',
-      'histórias de família': 'family saga fiction',
-      'viagens & aventura': 'travel adventure',
-      'best-sellers recentes': 'bestseller fiction',
-      'contos modernos': 'modern short stories'
-    };
-    return map[q.toLowerCase()] || q;
+    if (!q) {
+      return {
+        gutendex: '',
+        ia: '(romance OR contos OR amor OR Eça OR Camilo OR Dinis)',
+        ol: 'romance'
+      };
+    }
+    const lower = q.toLowerCase();
+    if (lower === 'romances em português') {
+      return {
+        gutendex: 'romance',
+        ia: '(romance OR amor OR paixão OR novela)',
+        ol: 'romance'
+      };
+    }
+    if (lower === 'autores de portugal') {
+      return {
+        gutendex: 'Queirós',
+        ia: '(Eça de Queirós OR Camilo Castelo Branco OR Júlio Dinis OR Almeida Garrett OR Florbela Espanca OR Fernando Pessoa)',
+        ol: 'Eça de Queirós'
+      };
+    }
+    if (lower === 'contos & histórias') {
+      return {
+        gutendex: 'contos',
+        ia: '(contos OR histórias OR novelas)',
+        ol: 'contos'
+      };
+    }
+    if (lower === 'mar & aventura') {
+      return {
+        gutendex: 'mar',
+        ia: '(mar OR viagem OR viagens OR aventura OR navegadores)',
+        ol: 'viagens mar'
+      };
+    }
+    if (lower === 'poesia & amor') {
+      return {
+        gutendex: 'poesia',
+        ia: '(poesia OR sonetos OR versos OR lírica OR amor)',
+        ol: 'poesia'
+      };
+    }
+    return { gutendex: q, ia: q, ol: q };
+  }
+
+  async function fetchGutendexPt(query) {
+    const qParam = query ? `&search=${encodeURIComponent(query)}` : '';
+    const url = `https://gutendex.com/books/?languages=pt${qParam}`;
+    const res = await fetchWithTimeout(url, 8000);
+    if (!res.ok) throw new Error('Gutendex error');
+    const data = await res.json();
+    const books = Array.isArray(data.results) ? data.results : [];
+    const results = [];
+    for (const b of books) {
+      const langs = Array.isArray(b.languages) ? b.languages : [];
+      if (!langs.includes('pt')) continue;
+      const formatInfo = pickGutenbergFormat(b.formats);
+      if (!formatInfo) continue;
+      const author = (b.authors || []).map((a) => a.name).join(', ') || 'Autor Desconhecido';
+      if (isLikelyForeignTitle(b.title, author)) continue;
+      results.push({
+        source: 'gutendex',
+        sourceLabel: 'Projeto Gutenberg',
+        id: `gut-${b.id}`,
+        gutenbergId: b.id,
+        formatInfo,
+        onlineUrl: `https://www.gutenberg.org/ebooks/${b.id}`,
+        title: b.title || 'Sem Título',
+        author,
+        subjects: b.subjects || [],
+        bookshelves: b.bookshelves || [],
+        coverUrl: b.formats && b.formats['image/jpeg'] ? b.formats['image/jpeg'] : ''
+      });
+    }
+    return results;
+  }
+
+  async function fetchInternetArchivePt(query) {
+    const iaQuery = `language:por AND mediatype:texts AND NOT collection:inlibrary AND NOT collection:printdisabled AND ${query}`;
+    const url = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(iaQuery)}&fl[]=identifier,title,creator,language,year,imagecount,format,publisher,downloads&sort[]=downloads+desc&rows=25&output=json`;
+    const res = await fetchWithTimeout(url, 8000);
+    if (!res.ok) throw new Error('IA error');
+    const data = await res.json();
+    const docs = Array.isArray(data?.response?.docs) ? data.response.docs : [];
+    const results = [];
+    for (const d of docs) {
+      if (!d.identifier || !d.title) continue;
+      const langs = Array.isArray(d.language) ? d.language.map((l) => String(l).toLowerCase()) : [String(d.language || '').toLowerCase()];
+      if (!langs.some((l) => l === 'por' || l === 'pt' || l.includes('portug'))) continue;
+      if (d.imagecount !== undefined && Number(d.imagecount) > 0 && Number(d.imagecount) < 15) continue;
+      const formats = Array.isArray(d.format) ? d.format : [];
+      const hasDirectText = formats.some((f) => /djvutxt|text|epub/i.test(f));
+      if (!hasDirectText) continue;
+      const author = Array.isArray(d.creator) ? d.creator.join(', ') : (d.creator || 'Autor Desconhecido');
+      if (isLikelyForeignTitle(d.title, author)) continue;
+      results.push({
+        source: 'archive',
+        sourceLabel: 'Internet Archive',
+        id: `ia-${d.identifier}`,
+        identifier: d.identifier,
+        onlineUrl: `https://archive.org/details/${encodeURIComponent(d.identifier)}`,
+        title: d.title,
+        author,
+        publisher: Array.isArray(d.publisher) ? d.publisher.join(', ') : (d.publisher || ''),
+        year: d.year || '',
+        pages: d.imagecount ? Number(d.imagecount) : null,
+        coverUrl: `https://archive.org/services/img/${encodeURIComponent(d.identifier)}`
+      });
+    }
+    return results;
+  }
+
+  async function fetchOpenLibraryPt(query) {
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&language=por&has_fulltext=true&ebook_access=public&limit=20&fields=key,title,author_name,language,ia,ebook_access,public_scan_b,number_of_pages_median,first_publish_year,cover_i`;
+    const res = await fetchWithTimeout(url, 8000);
+    if (!res.ok) throw new Error('OL error');
+    const data = await res.json();
+    const docs = Array.isArray(data.docs) ? data.docs : [];
+    const results = [];
+    for (const d of docs) {
+      if (d.ebook_access !== 'public' || d.public_scan_b !== true) continue;
+      const iaId = Array.isArray(d.ia) && d.ia.length > 0 ? d.ia[0] : null;
+      if (!iaId) continue;
+      if (d.number_of_pages_median && Number(d.number_of_pages_median) < 15) continue;
+      const langs = Array.isArray(d.language) ? d.language : [];
+      if (!langs.includes('por')) continue;
+      const author = Array.isArray(d.author_name) ? d.author_name.join(', ') : 'Autor Desconhecido';
+      if (isLikelyForeignTitle(d.title, author)) continue;
+      results.push({
+        source: 'archive',
+        sourceLabel: 'Open Library',
+        id: `ia-${iaId}`,
+        identifier: iaId,
+        onlineUrl: d.key ? `https://openlibrary.org${d.key}` : `https://archive.org/details/${iaId}`,
+        title: d.title || 'Sem Título',
+        author,
+        year: d.first_publish_year || '',
+        pages: d.number_of_pages_median ? Number(d.number_of_pages_median) : null,
+        coverUrl: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : ''
+      });
+    }
+    return results;
   }
 
   async function searchUniversalBooks(rawQuery) {
-    const query = mapSearchQuery(rawQuery);
-    internetStatus.textContent = 'A procurar livros recentes no Open Library...';
+    const queries = mapSearchQuery(rawQuery);
+    internetStatus.textContent = 'A procurar livros gratuitos em Português (Gutendex, Internet Archive e Open Library)...';
     internetResults.innerHTML = '';
 
-    const olLangMap = { pt: 'por', en: 'eng', es: 'spa', fr: 'fre' };
-    const langParam = selectedInternetLang !== 'all' ? `&language=${olLangMap[selectedInternetLang]}` : '';
-    const olUrl = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}${langParam}&has_fulltext=true&sort=new&limit=20`;
+    const settled = await Promise.allSettled([
+      fetchGutendexPt(queries.gutendex),
+      fetchInternetArchivePt(queries.ia),
+      fetchOpenLibraryPt(queries.ol)
+    ]);
 
-    try {
-      const res = await fetchWithTimeout(olUrl, 8000);
-      if (!res.ok) throw new Error('HTTP error');
-      const data = await res.json();
-      const docs = Array.isArray(data.docs) ? data.docs : [];
+    const merged = [];
+    const seenKeys = new Set();
+    let anySuccess = false;
 
-      if (docs.length === 0) {
-        internetStatus.textContent = 'Nenhum livro encontrado com esse termo. Tenta outro género ou idioma.';
-        return;
+    for (const res of settled) {
+      if (res.status === 'fulfilled') {
+        anySuccess = true;
+        for (const item of res.value) {
+          const normKey = `${item.title}::${item.author}`
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim();
+          if (!seenKeys.has(normKey)) {
+            seenKeys.add(normKey);
+            item.ptPriority = scorePortugalPriority(item);
+            merged.push(item);
+          }
+        }
       }
-
-      const results = docs.map((d, idx) => {
-        const iaId = Array.isArray(d.ia) && d.ia.length > 0 ? d.ia[0] : null;
-        const authorNames = Array.isArray(d.author_name) ? d.author_name.join(', ') : 'Autor Desconhecido';
-        const coverUrl = d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : '';
-        return {
-          source: 'archive',
-          id: iaId ? `ol-${iaId}` : `ol-key-${d.key || idx}`,
-          identifier: iaId,
-          onlineUrl: d.key ? `https://openlibrary.org${d.key}` : (iaId ? `https://archive.org/details/${iaId}` : ''),
-          title: d.title || 'Sem Título',
-          author: authorNames,
-          year: d.first_publish_year || '',
-          coverUrl
-        };
-      });
-
-      internetStatus.textContent = `${results.length} livros encontrados (ordenados pelos mais recentes):`;
-      renderUniversalResults(results);
-    } catch (_) {
-      internetStatus.textContent = 'Não foi possível contactar o Open Library. Verifica a ligação à internet.';
     }
+
+    if (!anySuccess) {
+      internetStatus.textContent = 'Não foi possível contactar os catálogos online. Verifica a ligação à internet.';
+      return;
+    }
+
+    merged.sort((a, b) => b.ptPriority - a.ptPriority);
+
+    if (merged.length === 0) {
+      internetStatus.textContent = 'Nenhum livro completo em Português encontrado com esse termo. Tenta outro autor ou sugestão.';
+      return;
+    }
+
+    internetStatus.textContent = `${merged.length} livros completos em Português encontrados (edições e autores de Portugal primeiro):`;
+    renderUniversalResults(merged);
   }
 
   function pickGutenbergFormat(formats) {
@@ -1187,15 +1368,19 @@
       const info = document.createElement('div');
       info.className = 'internet-book-info';
       const yearTxt = item.year ? ` · ${item.year}` : '';
+      const pagesTxt = item.pages ? ` · ${item.pages} págs.` : '';
+      const ptBadge = item.ptPriority >= 40 ? '🇵🇹 Portugal · ' : '';
+      const sourceTxt = item.sourceLabel ? `${ptBadge}${item.sourceLabel}` : ptBadge.replace(/ · $/, '');
       info.innerHTML = `
         <h3 class="internet-book-title">${escapeHtml(item.title)}</h3>
-        <div class="internet-book-author">${escapeHtml(item.author)}${escapeHtml(yearTxt)}</div>
+        <div class="internet-book-author">${escapeHtml(item.author)}${escapeHtml(yearTxt)}${escapeHtml(pagesTxt)}</div>
+        ${sourceTxt ? `<div class="internet-book-source">${escapeHtml(sourceTxt)}</div>` : ''}
       `;
 
       const actions = document.createElement('div');
       actions.className = 'internet-book-actions';
 
-      if (item.identifier) {
+      if (item.identifier || item.formatInfo) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn-download-book';
@@ -1239,17 +1424,22 @@
         cleanText = cleanGutenbergText(raw, item.formatInfo.isHtml);
       } else if (item.source === 'archive') {
         const txtUrl = `https://archive.org/download/${encodeURIComponent(item.identifier)}/${encodeURIComponent(item.identifier)}_djvu.txt`;
-        cleanText = await fetchWithCorsFallback(txtUrl);
-      } else if (item.source === 'wikisource') {
-        const res = await fetch(
-          `https://${item.wikiLang}.wikisource.org/w/api.php?action=parse&page=${encodeURIComponent(item.pageTitle)}&prop=text&format=json&origin=*`
-        );
-        if (!res.ok) throw new Error('Erro WikiSource');
-        const data = await res.json();
-        const html = data?.parse?.text?.['*'] || '';
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        doc.querySelectorAll('.mw-editsection, style, script, table.ambox, .noprint').forEach((el) => el.remove());
-        cleanText = (doc.body ? doc.body.innerText : '').replace(/\n{3,}/g, '\n\n').trim();
+        try {
+          cleanText = await fetchWithCorsFallback(txtUrl);
+        } catch (_) {
+          const metaRes = await fetchWithTimeout(`https://archive.org/metadata/${encodeURIComponent(item.identifier)}/files`, 7000);
+          if (!metaRes.ok) throw new Error('Sem metadados Archive');
+          const metaJson = await metaRes.json();
+          const files = Array.isArray(metaJson.result) ? metaJson.result : [];
+          const txtFile = files.find((f) => f.name && f.name.toLowerCase().endsWith('.txt'));
+          if (!txtFile) throw new Error('Sem ficheiro de texto direto');
+          const altUrl = `https://archive.org/download/${encodeURIComponent(item.identifier)}/${encodeURIComponent(txtFile.name)}`;
+          cleanText = await fetchWithCorsFallback(altUrl);
+        }
+      }
+
+      if (!cleanText || cleanText.trim().length < 1500) {
+        throw new Error('Texto demasiado curto (amostra)');
       }
 
       const chapters = splitTextIntoChapters(cleanText);

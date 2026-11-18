@@ -896,6 +896,13 @@ body {
   font-weight: 600;
 }
 
+.internet-book-source {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #0f766e;
+}
+
 .btn-download-book {
   min-height: 48px;
   padding: 10px 18px;
