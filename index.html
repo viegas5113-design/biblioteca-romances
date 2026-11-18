@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#4a1d2c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Biblioteca & Romances — estante pessoal de romances, contos, clássicos portugueses e audiolivros offline.">
+  <title>Biblioteca &amp; Romances</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">📚</span>
+        <div>
+          <h1>Biblioteca &amp; Romances</h1>
+          <p class="subtitle">A tua estante de leitura e audiolivros, sempre contigo</p>
+        </div>
+      </div>
+
+      <div class="header-tools">
+        <span id="offline-badge" class="status-pill">Pronto Offline</span>
+        <button type="button" id="btn-add-book" class="btn btn-gold">
+          + Adicionar Livro ou História
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- Categorias e Separador "A Ler Agora" -->
+    <nav class="categories-bar" aria-label="Categorias da estante">
+      <button type="button" class="cat-btn active" data-cat="todos">
+        <span>📚</span> Todos os Livros
+      </button>
+      <button type="button" class="cat-btn" data-cat="lendo">
+        <span>🔖</span> A Ler Agora (<span id="reading-count">0</span>)
+      </button>
+      <button type="button" class="cat-btn" data-cat="romances">
+        <span>❤️</span> Romances
+      </button>
+      <button type="button" class="cat-btn" data-cat="contos">
+        <span>📖</span> Contos &amp; Histórias
+      </button>
+      <button type="button" class="cat-btn" data-cat="classicos">
+        <span>🇵🇹</span> Clássicos Portugueses
+      </button>
+      <button type="button" class="cat-btn" data-cat="especiais">
+        <span>🌹</span> Histórias Especiais
+      </button>
+    </nav>
+
+    <!-- Pesquisa -->
+    <section class="search-panel" aria-label="Pesquisar livros">
+      <div class="search-wrap">
+        <span class="search-icon" aria-hidden="true">🔍</span>
+        <input
+          type="search"
+          id="search-input"
+          placeholder="Procurar por título ou autor..."
+          autocomplete="off"
+          aria-label="Procurar por título ou autor"
+        >
+        <button type="button" id="btn-clear-search" class="clear-search hidden" aria-label="Limpar pesquisa">✕</button>
+      </div>
+      <div id="shelf-meta" class="shelf-meta"></div>
+    </section>
+
+    <!-- Estante de Livros -->
+    <section id="books-grid" class="books-grid" aria-live="polite"></section>
+  </main>
+
+  <!-- Ecrã de Leitura Confortável + Audiolivro -->
+  <div id="reader-view" class="reader-view hidden theme-sepia" role="dialog" aria-modal="true" aria-labelledby="reader-book-title">
+    <div class="reader-topbar">
+      <div class="reader-topbar-row">
+        <button type="button" id="btn-back-shelf" class="btn-reader-nav">← Estante</button>
+        <div class="reader-book-meta">
+          <strong id="reader-book-title"></strong>
+          <span id="reader-book-author"></span>
+        </div>
+        <button type="button" id="btn-delete-book" class="btn-reader-icon hidden" title="Apagar livro adicionado">🗑️</button>
+      </div>
+
+      <div class="comfort-bar">
+        <div class="comfort-group">
+          <button type="button" id="btn-font-down" class="comfort-btn" title="Diminuir letra">A-</button>
+          <button type="button" id="btn-font-up" class="comfort-btn" title="Aumentar letra">A+</button>
+        </div>
+
+        <div class="comfort-group" aria-label="Cor de fundo">
+          <button type="button" class="theme-chip" data-theme="light" title="Fundo Branco">Branco</button>
+          <button type="button" class="theme-chip active" data-theme="sepia" title="Papel Creme (Sépia)">Creme</button>
+          <button type="button" class="theme-chip" data-theme="dark" title="Modo Noturno Escuro">Escuro</button>
+        </div>
+
+        <div class="comfort-group tts-controls">
+          <button type="button" id="btn-tts-play" class="comfort-btn comfort-btn-accent">🔊 Ouvir Capítulo</button>
+          <button type="button" id="btn-tts-pause" class="comfort-btn hidden">⏸️ Pausa</button>
+          <button type="button" id="btn-tts-stop" class="comfort-btn hidden">⏹️ Parar</button>
+        </div>
+      </div>
+
+      <div class="chapter-jump-row">
+        <select id="chapter-select" aria-label="Escolher capítulo"></select>
+        <span id="tts-status" class="tts-status"></span>
+      </div>
+    </div>
+
+    <div id="reader-scroll" class="reader-scroll">
+      <article class="reader-page">
+        <h2 id="reader-chapter-title" class="reader-chapter-title"></h2>
+        <div id="reader-chapter-text" class="reader-chapter-text"></div>
+
+        <nav class="chapter-pager" aria-label="Navegação entre capítulos">
+          <button type="button" id="btn-prev-chap" class="btn btn-pager">⬅️ Capítulo Anterior</button>
+          <span id="chapter-indicator" class="chapter-indicator"></span>
+          <button type="button" id="btn-next-chap" class="btn btn-pager">Capítulo Seguinte ➡️</button>
+        </nav>
+      </article>
+    </div>
+  </div>
+
+  <!-- Modal Adicionar Livro ou História (.txt / .epub / Texto) -->
+  <div id="add-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="add-heading">
+    <div class="modal-backdrop" data-close="add"></div>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="add-heading">+ Adicionar Livro ou História</h2>
+        <button type="button" class="close-btn" data-close="add" aria-label="Fechar">✕</button>
+      </div>
+
+      <div class="import-box">
+        <p>Importar ficheiro do tablet ou computador (<strong>.txt</strong> ou <strong>.epub</strong>):</p>
+        <button type="button" id="btn-pick-file" class="btn btn-secondary">📥 Escolher Ficheiro (.txt / .epub)</button>
+        <input type="file" id="book-file-input" accept=".txt,.epub,text/plain,application/epub+zip" class="hidden">
+        <span id="import-file-status" class="import-status"></span>
+      </div>
+
+      <form id="add-book-form" class="add-form">
+        <label class="field">
+          <span>Título do Livro ou História</span>
+          <input type="text" id="add-title" required placeholder="Ex: As Ondas de Lagos, O Meu Conto...">
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span>Autor</span>
+            <input type="text" id="add-author" placeholder="Ex: Autor Pessoal, Júlio Dinis...">
+          </label>
+
+          <label class="field">
+            <span>Categoria</span>
+            <select id="add-category" required>
+              <option value="especiais">🌹 Histórias Especiais</option>
+              <option value="romances">❤️ Romances</option>
+              <option value="contos">📖 Contos &amp; Histórias</option>
+              <option value="classicos">🇵🇹 Clássicos Portugueses</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Texto (podes colar vários capítulos separados por "Capítulo ...")</span>
+          <textarea id="add-text" rows="9" required placeholder="Cola ou escreve aqui a história ou o texto do livro..."></textarea>
+        </label>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="add">Cancelar</button>
+          <button type="submit" class="btn btn-primary">📚 Guardar na Estante</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="./books.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
