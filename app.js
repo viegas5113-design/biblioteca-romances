@@ -1064,12 +1064,29 @@
     'alexandre herculano', 'aquilino ribeiro', 'teixeira de pascoaes',
     'guerra junqueiro', 'soares de passos', 'oliveira martins',
     'antónio nobre', 'antonio nobre', 'gil vicente', 'fernão mendes pinto',
-    'antónio vieira', 'antonio vieira', 'sophia de mello breyner', 'vergílio ferreira'
+    'antónio vieira', 'antonio vieira', 'raul brandão', 'raul brandao',
+    'ferreira de castro', 'branquinho da fonseca', 'alves redol',
+    'soeiro pereira gomes', 'manuel da fonseca', 'carlos de oliveira',
+    'vitorino nemésio', 'vitorino nemesio', 'josé saramago', 'jose saramago',
+    'antónio lobo antunes', 'antonio lobo antunes', 'lídia jorge', 'lidia jorge',
+    'sophia de mello breyner', 'agustina bessa-luís', 'agustina bessa luis',
+    'vergílio ferreira', 'vergilio ferreira', 'miguel torga',
+    'josé cardoso pires', 'jose cardoso pires', 'natália correia', 'natalia correia',
+    'urbano tavares rodrigues', 'josé luís peixoto', 'jose luis peixoto',
+    'valter hugo mãe', 'valter hugo mae', 'afonso cruz', 'dulce maria cardoso',
+    'gonçalo m. tavares', 'goncalo m tavares', 'mário cláudio', 'mario claudio',
+    'josé rodrigues dos santos', 'jose rodrigues dos santos', 'inês pedrosa', 'ines pedrosa',
+    'hélia correia', 'helia correia', 'rui zink', 'francisco josé viegas',
+    'alice vieira', 'isabel stilwell', 'margarida rebelo pinto', 'pedro chagas freitas',
+    'eugénio de andrade', 'eugenio de andrade', 'mário cesariny', 'alexandre o\'neill',
+    'ruy belo', 'herberto helder', 'nuno júdice', 'vasco graça moura', 'miguel sousa tavares'
   ];
 
   const PORTUGAL_EDITION_TERMS = [
     'lisboa', 'porto', 'coimbra', 'portugal', 'portuguesa', 'português', 'portugues',
-    'lello', 'bertrand', 'parceria a. m. pereira', 'guimarães editores', 'clássica editora'
+    'lello', 'bertrand', 'parceria a. m. pereira', 'guimarães editores', 'clássica editora',
+    'dom quixote', 'editorial caminho', 'editorial presença', 'relógio d\'água',
+    'porto editora', 'gradiva', 'quetzal', 'tinta-da-china', 'leya', 'asa'
   ];
 
   const BRAZIL_REGIONAL_TERMS = [
@@ -1120,8 +1137,11 @@
   function scorePortugalPriority(item) {
     const text = `${item.title || ''} ${item.author || ''} ${item.publisher || ''}`.toLowerCase();
     let score = 0;
-    if (PORTUGAL_AUTHORS.some((a) => text.includes(a))) score += 100;
-    if (PORTUGAL_EDITION_TERMS.some((t) => text.includes(t))) score += 40;
+    if (PORTUGAL_AUTHORS.some((a) => text.includes(a))) score += 120;
+    if (PORTUGAL_EDITION_TERMS.some((t) => text.includes(t))) score += 45;
+    const yr = Number(item.year);
+    if (!Number.isNaN(yr) && yr >= 1980) score += 25;
+    else if (!Number.isNaN(yr) && yr >= 1940) score += 15;
     if (item.source === 'gutendex') score += 15;
     if (BRAZIL_REGIONAL_TERMS.some((b) => text.includes(b))) score -= 30;
     return score;
@@ -1146,9 +1166,9 @@
     }
     if (lower === 'autores de portugal') {
       return {
-        gutendex: 'Queirós',
-        ia: '(Eça de Queirós OR Camilo Castelo Branco OR Júlio Dinis OR Almeida Garrett OR Florbela Espanca OR Fernando Pessoa)',
-        ol: 'Eça de Queirós'
+        gutendex: '',
+        ia: '(Eça de Queirós OR Camilo Castelo Branco OR Júlio Dinis OR Almeida Garrett OR Florbela Espanca OR Fernando Pessoa OR José Saramago OR António Lobo Antunes OR Lídia Jorge OR Miguel Torga OR Sophia de Mello Breyner OR Vergílio Ferreira OR Agustina Bessa-Luís OR José Luís Peixoto OR Valter Hugo Mãe OR Afonso Cruz OR Dulce Maria Cardoso OR Raul Brandão OR Aquilino Ribeiro)',
+        ol: 'Portugal'
       };
     }
     if (lower === 'contos & histórias') {
