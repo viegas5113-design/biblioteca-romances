@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=3">
+  <link rel="stylesheet" href="./styles.css?v=4">
 </head>
 <body>
   <header class="app-header">
@@ -198,21 +198,30 @@
         <input
           type="search"
           id="internet-query"
-          placeholder="Escreve um autor ou título (ex: Eça de Queirós, Camilo...)"
+          placeholder="Escreve um autor ou título (ex: Jane Austen, Eça de Queirós, Júlio Verne...)"
           autocomplete="off"
-          aria-label="Pesquisar no Projeto Gutenberg"
+          aria-label="Pesquisar livros na internet"
         >
         <button type="submit" class="btn btn-primary">🔍 Procurar</button>
       </form>
 
+      <div class="lang-bar" aria-label="Idioma da pesquisa">
+        <button type="button" class="lang-btn active" data-lang="all">🌍 Universal</button>
+        <button type="button" class="lang-btn" data-lang="pt">🇵🇹 Português</button>
+        <button type="button" class="lang-btn" data-lang="en">🇬🇧 Inglês</button>
+        <button type="button" class="lang-btn" data-lang="es">🇪🇸 Espanhol</button>
+        <button type="button" class="lang-btn" data-lang="fr">🇫🇷 Francês</button>
+      </div>
+
       <div class="suggestions-bar" aria-label="Sugestões rápidas">
-        <button type="button" class="chip-suggest" data-q="Romances">Romances</button>
-        <button type="button" class="chip-suggest" data-q="Contos">Contos</button>
-        <button type="button" class="chip-suggest" data-q="Júlio Dinis">Júlio Dinis</button>
-        <button type="button" class="chip-suggest" data-q="Eça de Queirós">Eça de Queirós</button>
-        <button type="button" class="chip-suggest" data-q="Camilo Castelo Branco">Camilo Castelo Branco</button>
-        <button type="button" class="chip-suggest" data-q="Florbela Espanca">Florbela Espanca</button>
-        <button type="button" class="chip-suggest" data-q="Machado de Assis">Machado de Assis</button>
+        <button type="button" class="chip-suggest" data-q="Romances Clássicos">❤️ Romances Clássicos</button>
+        <button type="button" class="chip-suggest" data-q="Eça de Queirós">🇵🇹 Eça de Queirós</button>
+        <button type="button" class="chip-suggest" data-q="Júlio Dinis">🇵🇹 Júlio Dinis</button>
+        <button type="button" class="chip-suggest" data-q="Camilo Castelo Branco">🇵🇹 Camilo Castelo Branco</button>
+        <button type="button" class="chip-suggest" data-q="Jane Austen">🌍 Jane Austen</button>
+        <button type="button" class="chip-suggest" data-q="Alexandre Dumas">🌍 Alexandre Dumas</button>
+        <button type="button" class="chip-suggest" data-q="Júlio Verne">🌍 Júlio Verne</button>
+        <button type="button" class="chip-suggest" data-q="Victor Hugo">🌍 Victor Hugo</button>
       </div>
 
       <div id="internet-status" class="internet-status"></div>
@@ -222,7 +231,7 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="./books.js?v=3"></script>
-  <script src="./app.js?v=3"></script>
+  <script src="./books.js?v=4"></script>
+  <script src="./app.js?v=4"></script>
 </body>
 </html>

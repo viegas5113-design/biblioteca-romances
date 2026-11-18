@@ -91,6 +91,8 @@
   const internetStatus = document.getElementById('internet-status');
   const internetResults = document.getElementById('internet-results');
   const suggestChips = document.querySelectorAll('.chip-suggest');
+  const langButtons = document.querySelectorAll('.lang-btn');
+  let selectedInternetLang = 'all';
 
   const toastEl = document.getElementById('toast');
 
@@ -833,7 +835,7 @@
 
     internetSearchForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      searchGutendex(internetQuery.value.trim());
+      searchUniversalBooks(internetQuery.value.trim());
     });
 
     suggestChips.forEach((chip) => {
@@ -841,7 +843,15 @@
         const q = chip.dataset.q || '';
         internetQuery.value = q;
         suggestChips.forEach((c) => c.classList.toggle('active', c === chip));
-        searchGutendex(q);
+        searchUniversalBooks(q);
+      });
+    });
+
+    langButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        selectedInternetLang = btn.dataset.lang || 'all';
+        langButtons.forEach((b) => b.classList.toggle('active', b === btn));
+        searchUniversalBooks(internetQuery.value.trim());
       });
     });
 
@@ -864,12 +874,26 @@
     window.addEventListener('offline', updateOnlineStatus);
   }
 
-  // Internet Search & Download (Projeto Gutenberg / Gutendex)
+  // Internet Search & Download (Universal: Gutendex + Open Library + WikiSource)
+  const PORTUGAL_AUTHORS = [
+    'eça de queirós', 'queirós', 'queiroz', 'camilo castelo branco', 'castelo branco',
+    'júlio dinis', 'dinis', 'florbela espanca', 'almeida garrett', 'garrett',
+    'fernando pessoa', 'camões', 'antero de quental', 'cesário verde',
+    'bocage', 'ramalho ortigão', 'fialho de almeida', 'alexandre herculano', 'aquilino ribeiro'
+  ];
+
+  const BRAZIL_REGIONAL_TERMS = [
+    'machado de assis', 'josé de alencar', 'aluísio azevedo', 'lima barreto',
+    'graça aranha', 'olavo bilac', 'coelho neto', 'raúl pompéia', 'euclides da cunha',
+    'dom casmurro', 'memórias póstumas', 'quincas borba', 'iracema', 'o cortiço', 'o guarani',
+    'senhora', 'a moreninha', 'triste fim de policarpo'
+  ];
+
   function openInternetModal() {
     internetModal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
     if (internetResults.children.length === 0) {
-      searchGutendex('');
+      searchUniversalBooks('');
     }
   }
 
@@ -890,168 +914,139 @@
     }
   }
 
-  async function searchGutendex(query) {
-    internetStatus.textContent = 'A procurar livros gratuitos em Português...';
+  function mapSearchQuery(rawQuery) {
+    const q = (rawQuery || '').trim();
+    if (!q) return selectedInternetLang === 'pt' ? 'Eça de Queirós' : 'romance';
+    if (q.toLowerCase() === 'romances clássicos') {
+      return selectedInternetLang === 'pt' ? 'romance' : 'classic romance';
+    }
+    return q;
+  }
+
+  function isPortugalAuthor(authorStr) {
+    const a = String(authorStr || '').toLowerCase();
+    return PORTUGAL_AUTHORS.some((p) => a.includes(p));
+  }
+
+  function isBrazilianRegional(item, explicitQuery) {
+    const qLower = (explicitQuery || '').toLowerCase();
+    const combined = `${item.title || ''} ${item.author || ''}`.toLowerCase();
+    return BRAZIL_REGIONAL_TERMS.some((term) => combined.includes(term) && !qLower.includes(term));
+  }
+
+  async function searchUniversalBooks(rawQuery) {
+    const query = mapSearchQuery(rawQuery);
+    internetStatus.textContent = 'A pesquisar em catálogos universais...';
     internetResults.innerHTML = '';
 
-    const gutendexUrl = query
-      ? `https://gutendex.com/books?languages=pt&search=${encodeURIComponent(query)}`
-      : 'https://gutendex.com/books?languages=pt';
+    const olLangMap = { pt: 'por', en: 'eng', es: 'spa', fr: 'fre' };
+    const wikiLang = selectedInternetLang === 'all' ? 'pt' : selectedInternetLang;
 
-    // 1. Tentar Gutendex (Projeto Gutenberg) com timeout curto
-    try {
-      const res = await fetchWithTimeout(gutendexUrl, 4500);
-      if (res.ok) {
-        const data = await res.json();
-        const books = Array.isArray(data.results) ? data.results : [];
-        if (books.length > 0) {
-          internetStatus.textContent = `${books.length} ${books.length === 1 ? 'livro encontrado' : 'livros encontrados'} no Projeto Gutenberg:`;
-          renderGutendexResults(books);
-          return;
-        }
+    const gutendexUrl =
+      selectedInternetLang === 'all'
+        ? `https://gutendex.com/books?search=${encodeURIComponent(query)}`
+        : `https://gutendex.com/books?languages=${selectedInternetLang}&search=${encodeURIComponent(query)}`;
+
+    const olUrl =
+      selectedInternetLang === 'all'
+        ? `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&has_fulltext=true&limit=14`
+        : `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&language=${olLangMap[selectedInternetLang]}&has_fulltext=true&limit=14`;
+
+    const wikiUrl = `https://${wikiLang}.wikisource.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=10&format=json&origin=*`;
+
+    const [gutRes, olRes, wikiRes] = await Promise.allSettled([
+      fetchWithTimeout(gutendexUrl, 4500).then((r) => (r.ok ? r.json() : null)),
+      fetchWithTimeout(olUrl, 6000).then((r) => (r.ok ? r.json() : null)),
+      fetchWithTimeout(wikiUrl, 5000).then((r) => (r.ok ? r.json() : null))
+    ]);
+
+    let results = [];
+    const seenTitles = new Set();
+
+    // 1. Gutendex
+    if (gutRes.status === 'fulfilled' && Array.isArray(gutRes.value?.results)) {
+      for (const b of gutRes.value.results) {
+        const formatInfo = pickGutenbergFormat(b.formats);
+        if (!formatInfo) continue;
+        const authorNames =
+          Array.isArray(b.authors) && b.authors.length > 0
+            ? b.authors.map((a) => a.name).join(', ')
+            : 'Autor Desconhecido';
+        const key = `${b.title}::${authorNames}`.toLowerCase();
+        if (seenTitles.has(key)) continue;
+        seenTitles.add(key);
+
+        results.push({
+          source: 'gutendex',
+          id: `gutenberg-${b.id}`,
+          gutenbergId: b.id,
+          title: b.title,
+          author: authorNames,
+          subjects: b.subjects || [],
+          bookshelves: b.bookshelves || [],
+          formatInfo,
+          badge: 'Projeto Gutenberg'
+        });
       }
-    } catch (_) {
-      // Gutendex indisponível/lento -> usar fontes alternativas rápidas em Português
     }
 
-    // 2. Fallback automático: WikiSource PT + Internet Archive
-    try {
-      const searchTerms = query || 'romance português';
-      const [wikiRes, archiveRes] = await Promise.allSettled([
-        fetchWithTimeout(
-          `https://pt.wikisource.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchTerms)}&srlimit=12&format=json&origin=*`,
-          6000
-        ).then((r) => (r.ok ? r.json() : null)),
-        fetchWithTimeout(
-          `https://archive.org/advancedsearch.php?q=${encodeURIComponent(`language:(Portuguese) AND mediatype:(texts) AND (${searchTerms})`)}&fl[]=identifier,title,creator&rows=10&output=json`,
-          6000
-        ).then((r) => (r.ok ? r.json() : null))
-      ]);
+    // 2. Open Library (com texto completo no Internet Archive)
+    if (olRes.status === 'fulfilled' && Array.isArray(olRes.value?.docs)) {
+      for (const d of olRes.value.docs) {
+        const iaId = Array.isArray(d.ia) && d.ia.length > 0 ? d.ia[0] : null;
+        if (!iaId) continue;
+        const authorNames = Array.isArray(d.author_name) ? d.author_name.join(', ') : 'Autor Desconhecido';
+        const key = `${d.title}::${authorNames}`.toLowerCase();
+        if (seenTitles.has(key)) continue;
+        seenTitles.add(key);
 
-      const combined = [];
-
-      if (wikiRes.status === 'fulfilled' && wikiRes.value?.query?.search) {
-        for (const w of wikiRes.value.query.search) {
-          combined.push({
-            source: 'wikisource',
-            id: `wiki-${w.pageid}`,
-            pageTitle: w.title,
-            title: w.title,
-            author: 'WikiSource em Português'
-          });
-        }
+        results.push({
+          source: 'archive',
+          id: `ol-${iaId}`,
+          identifier: iaId,
+          title: d.title,
+          author: authorNames,
+          badge: 'Open Library'
+        });
       }
-
-      if (archiveRes.status === 'fulfilled' && archiveRes.value?.response?.docs) {
-        for (const d of archiveRes.value.response.docs) {
-          combined.push({
-            source: 'archive',
-            id: `ia-${d.identifier}`,
-            identifier: d.identifier,
-            title: Array.isArray(d.title) ? d.title[0] : d.title || d.identifier,
-            author: Array.isArray(d.creator) ? d.creator.join(', ') : d.creator || 'Internet Archive'
-          });
-        }
-      }
-
-      if (combined.length === 0) {
-        internetStatus.textContent = 'Nenhum livro encontrado com essa pesquisa. Tenta outro nome ou sugestão.';
-        return;
-      }
-
-      internetStatus.textContent = `${combined.length} ${combined.length === 1 ? 'livro/obra encontrada' : 'livros/obras encontradas'} (WikiSource PT & Internet Archive):`;
-      renderFallbackResults(combined);
-    } catch (_) {
-      internetStatus.textContent = 'Não foi possível ligar às bibliotecas online. Verifica a ligação à internet.';
-    }
-  }
-
-  function renderFallbackResults(list) {
-    const frag = document.createDocumentFragment();
-    const savedIds = new Set(userBooks.map((b) => b.id));
-
-    for (const item of list) {
-      const card = document.createElement('div');
-      card.className = 'internet-book-card';
-
-      const info = document.createElement('div');
-      info.className = 'internet-book-info';
-      info.innerHTML = `
-        <h3 class="internet-book-title">${escapeHtml(item.title)}</h3>
-        <div class="internet-book-author">${escapeHtml(item.author)}</div>
-      `;
-
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn-download-book';
-
-      if (savedIds.has(item.id)) {
-        btn.textContent = '✅ Já na Estante';
-        btn.disabled = true;
-      } else {
-        btn.textContent = '📥 Guardar na Minha Estante';
-        btn.addEventListener('click', () => downloadFallbackBook(item, btn));
-      }
-
-      card.append(info, btn);
-      frag.appendChild(card);
     }
 
-    internetResults.appendChild(frag);
-  }
+    // 3. WikiSource (PT / EN / ES / FR)
+    if (wikiRes.status === 'fulfilled' && Array.isArray(wikiRes.value?.query?.search)) {
+      for (const w of wikiRes.value.query.search) {
+        const key = `${w.title}`.toLowerCase();
+        if (seenTitles.has(key)) continue;
+        seenTitles.add(key);
 
-  async function downloadFallbackBook(item, btn) {
-    btn.disabled = true;
-    btn.textContent = '⏳ A descarregar...';
-
-    try {
-      let cleanText = '';
-
-      if (item.source === 'wikisource') {
-        const res = await fetch(
-          `https://pt.wikisource.org/w/api.php?action=parse&page=${encodeURIComponent(item.pageTitle)}&prop=text&format=json&origin=*`
-        );
-        if (!res.ok) throw new Error('Erro WikiSource');
-        const data = await res.json();
-        const html = data?.parse?.text?.['*'] || '';
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        doc.querySelectorAll('.mw-editsection, style, script, table.ambox, .noprint').forEach((el) => el.remove());
-        cleanText = (doc.body ? doc.body.innerText : '').replace(/\n{3,}/g, '\n\n').trim();
-      } else if (item.source === 'archive') {
-        const txtUrl = `https://archive.org/download/${encodeURIComponent(item.identifier)}/${encodeURIComponent(item.identifier)}_djvu.txt`;
-        cleanText = await fetchWithCorsFallback(txtUrl);
+        results.push({
+          source: 'wikisource',
+          wikiLang,
+          id: `wiki-${wikiLang}-${w.pageid}`,
+          pageTitle: w.title,
+          title: w.title,
+          author: `WikiSource (${wikiLang.toUpperCase()})`,
+          badge: 'WikiSource'
+        });
       }
-
-      const chapters = splitTextIntoChapters(cleanText);
-      if (chapters.length === 0) throw new Error('Texto vazio');
-
-      const category = guessBookCategory({ title: item.title });
-      const emojiMap = { romances: '❤️', contos: '📖', classicos: '🇵🇹', especiais: '🌹' };
-      const palette = COVER_PALETTES[userBooks.length % COVER_PALETTES.length];
-
-      const newBook = {
-        id: item.id,
-        title: item.title,
-        author: item.author,
-        category,
-        palette,
-        coverEmoji: emojiMap[category] || '📖',
-        isUserBook: true,
-        chapters
-      };
-
-      userBooks.unshift(newBook);
-      await saveBookToIdb(newBook);
-      saveUserBooks();
-      renderShelf();
-
-      btn.textContent = '✅ Já na Estante';
-      showToast(`"${item.title}" guardado offline (${chapters.length} capítulos)!`);
-    } catch (_) {
-      btn.disabled = false;
-      btn.textContent = '📥 Guardar na Minha Estante';
-      showToast('Este título não tem texto livre disponível. Experimenta outro resultado.');
     }
+
+    // Filtro e ordenação para Português (Portugal primeiro, sem foco regional brasileiro)
+    if (selectedInternetLang === 'pt') {
+      results = results.filter((item) => !isBrazilianRegional(item, rawQuery));
+      results.sort((a, b) => {
+        const aPt = isPortugalAuthor(a.author) || isPortugalAuthor(a.title) ? 1 : 0;
+        const bPt = isPortugalAuthor(b.author) || isPortugalAuthor(b.title) ? 1 : 0;
+        return bPt - aPt;
+      });
+    }
+
+    if (results.length === 0) {
+      internetStatus.textContent = 'Nenhum livro encontrado com essa pesquisa. Tenta outro termo ou idioma.';
+      return;
+    }
+
+    internetStatus.textContent = `${results.length} ${results.length === 1 ? 'obra encontrada' : 'obras encontradas'} (prontas a guardar offline):`;
+    renderUniversalResults(results);
   }
 
   function pickGutenbergFormat(formats) {
@@ -1077,39 +1072,31 @@
     return null;
   }
 
-  function renderGutendexResults(books) {
+  function renderUniversalResults(results) {
     const frag = document.createDocumentFragment();
-    const savedGutenbergIds = new Set(userBooks.map((b) => b.gutenbergId).filter(Boolean));
+    const savedIds = new Set(userBooks.map((b) => b.id));
 
-    for (const b of books) {
-      const formatInfo = pickGutenbergFormat(b.formats);
-      if (!formatInfo) continue;
-
+    for (const item of results) {
       const card = document.createElement('div');
       card.className = 'internet-book-card';
-
-      const authorNames =
-        Array.isArray(b.authors) && b.authors.length > 0
-          ? b.authors.map((a) => a.name).join(', ')
-          : 'Autor Desconhecido';
 
       const info = document.createElement('div');
       info.className = 'internet-book-info';
       info.innerHTML = `
-        <h3 class="internet-book-title">${escapeHtml(b.title)}</h3>
-        <div class="internet-book-author">${escapeHtml(authorNames)}</div>
+        <h3 class="internet-book-title">${escapeHtml(item.title)}</h3>
+        <div class="internet-book-author">${escapeHtml(item.author)} · <small>${escapeHtml(item.badge)}</small></div>
       `;
 
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-download-book';
 
-      if (savedGutenbergIds.has(b.id)) {
+      if (savedIds.has(item.id)) {
         btn.textContent = '✅ Já na Estante';
         btn.disabled = true;
       } else {
         btn.textContent = '📥 Guardar na Minha Estante';
-        btn.addEventListener('click', () => downloadAndSaveGutenbergBook(b, authorNames, formatInfo, btn));
+        btn.addEventListener('click', () => downloadAndSaveUniversalBook(item, btn));
       }
 
       card.append(info, btn);
@@ -1117,6 +1104,64 @@
     }
 
     internetResults.appendChild(frag);
+  }
+
+  async function downloadAndSaveUniversalBook(item, btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ A descarregar...';
+
+    try {
+      let cleanText = '';
+
+      if (item.source === 'gutendex') {
+        const raw = await fetchWithCorsFallback(item.formatInfo.url);
+        cleanText = cleanGutenbergText(raw, item.formatInfo.isHtml);
+      } else if (item.source === 'archive') {
+        const txtUrl = `https://archive.org/download/${encodeURIComponent(item.identifier)}/${encodeURIComponent(item.identifier)}_djvu.txt`;
+        cleanText = await fetchWithCorsFallback(txtUrl);
+      } else if (item.source === 'wikisource') {
+        const res = await fetch(
+          `https://${item.wikiLang}.wikisource.org/w/api.php?action=parse&page=${encodeURIComponent(item.pageTitle)}&prop=text&format=json&origin=*`
+        );
+        if (!res.ok) throw new Error('Erro WikiSource');
+        const data = await res.json();
+        const html = data?.parse?.text?.['*'] || '';
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        doc.querySelectorAll('.mw-editsection, style, script, table.ambox, .noprint').forEach((el) => el.remove());
+        cleanText = (doc.body ? doc.body.innerText : '').replace(/\n{3,}/g, '\n\n').trim();
+      }
+
+      const chapters = splitTextIntoChapters(cleanText);
+      if (chapters.length === 0) throw new Error('Texto vazio');
+
+      const category = guessBookCategory(item);
+      const emojiMap = { romances: '❤️', contos: '📖', classicos: '🇵🇹', especiais: '🌹' };
+      const palette = COVER_PALETTES[userBooks.length % COVER_PALETTES.length];
+
+      const newBook = {
+        id: item.id,
+        gutenbergId: item.gutenbergId,
+        title: item.title,
+        author: item.author,
+        category,
+        palette,
+        coverEmoji: emojiMap[category] || '📖',
+        isUserBook: true,
+        chapters
+      };
+
+      userBooks.unshift(newBook);
+      await saveBookToIdb(newBook);
+      saveUserBooks();
+      renderShelf();
+
+      btn.textContent = '✅ Já na Estante';
+      showToast(`"${item.title}" guardado offline (${chapters.length} capítulos)!`);
+    } catch (_) {
+      btn.disabled = false;
+      btn.textContent = '📥 Guardar na Minha Estante';
+      showToast('Não foi possível descarregar o texto deste livro. Experimenta outro resultado.');
+    }
   }
 
   async function fetchWithCorsFallback(targetUrl) {
@@ -1166,49 +1211,6 @@
     if (/(conto|short stories|fables|novela)/.test(meta)) return 'contos';
     if (/(romance|love|amor|fiction)/.test(meta)) return 'romances';
     return 'classicos';
-  }
-
-  async function downloadAndSaveGutenbergBook(gBook, authorNames, formatInfo, btn) {
-    btn.disabled = true;
-    btn.textContent = '⏳ A descarregar...';
-
-    try {
-      const raw = await fetchWithCorsFallback(formatInfo.url);
-      const cleanText = cleanGutenbergText(raw, formatInfo.isHtml);
-      const chapters = splitTextIntoChapters(cleanText);
-
-      if (chapters.length === 0) {
-        throw new Error('Texto vazio');
-      }
-
-      const category = guessBookCategory(gBook);
-      const emojiMap = { romances: '❤️', contos: '📖', classicos: '🇵🇹', especiais: '🌹' };
-      const palette = COVER_PALETTES[userBooks.length % COVER_PALETTES.length];
-
-      const newBook = {
-        id: `gutenberg-${gBook.id}`,
-        gutenbergId: gBook.id,
-        title: gBook.title,
-        author: authorNames,
-        category,
-        palette,
-        coverEmoji: emojiMap[category] || '📖',
-        isUserBook: true,
-        chapters
-      };
-
-      userBooks.unshift(newBook);
-      await saveBookToIdb(newBook);
-      saveUserBooks();
-      renderShelf();
-
-      btn.textContent = '✅ Já na Estante';
-      showToast(`"${gBook.title}" guardado offline (${chapters.length} capítulos)!`);
-    } catch (_) {
-      btn.disabled = false;
-      btn.textContent = '📥 Guardar na Minha Estante';
-      showToast('Não foi possível descarregar este livro. Tenta outro resultado.');
-    }
   }
 
   function escapeHtml(str) {
