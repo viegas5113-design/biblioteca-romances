@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=6">
+  <link rel="stylesheet" href="./styles.css?v=7">
 </head>
 <body>
   <header class="app-header">
@@ -68,16 +68,21 @@
 
     <!-- Pesquisa -->
     <section class="search-panel" aria-label="Pesquisar livros">
-      <div class="search-wrap">
-        <span class="search-icon" aria-hidden="true">🔍</span>
-        <input
-          type="search"
-          id="search-input"
-          placeholder="Procurar por título ou autor..."
-          autocomplete="off"
-          aria-label="Procurar por título ou autor"
-        >
-        <button type="button" id="btn-clear-search" class="clear-search hidden" aria-label="Limpar pesquisa">✕</button>
+      <div class="search-controls-row">
+        <div class="search-wrap">
+          <span class="search-icon" aria-hidden="true">🔍</span>
+          <input
+            type="search"
+            id="search-input"
+            placeholder="Procurar por título ou autor..."
+            autocomplete="off"
+            aria-label="Procurar por título ou autor"
+          >
+          <button type="button" id="btn-clear-search" class="clear-search hidden" aria-label="Limpar pesquisa">✕</button>
+        </div>
+        <button type="button" id="btn-recent-local" class="btn-recent-filter" aria-pressed="false">
+          📅 Só Livros Recentes (últimos 3 anos)
+        </button>
       </div>
       <div id="shelf-meta" class="shelf-meta"></div>
     </section>
@@ -210,6 +215,9 @@
           aria-label="Pesquisar livros em Português na internet"
         >
         <button type="submit" class="btn btn-primary">🔍 Procurar</button>
+        <button type="button" id="btn-recent-internet" class="btn-recent-filter" aria-pressed="false">
+          📅 Só Livros Recentes (últimos 3 anos)
+        </button>
       </form>
 
       <div class="suggestions-bar" aria-label="Sugestões rápidas em Português">
@@ -229,7 +237,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
-  <script src="./books.js?v=6"></script>
-  <script src="./app.js?v=6"></script>
+  <script src="./books.js?v=7"></script>
+  <script src="./app.js?v=7"></script>
 </body>
 </html>

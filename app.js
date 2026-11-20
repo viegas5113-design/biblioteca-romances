@@ -20,12 +20,17 @@
     ['#7a2039', '#b23a48', '#f6d186']
   ];
 
+  const RECENT_BOOK_MIN_YEAR = 2024;
+
   // State
   let userBooks = [];
   let progressMap = {};
   let prefs = { fontSize: 1.25, theme: 'sepia' };
   let activeCategory = 'todos';
   let searchQuery = '';
+  let recentOnlyLocal = false;
+  let recentOnlyInternet = false;
+  let lastInternetResults = [];
 
   let activeBook = null;
   let activeChapterIdx = 0;
@@ -45,6 +50,7 @@
   const readingCountEl = document.getElementById('reading-count');
   const searchInput = document.getElementById('search-input');
   const btnClearSearch = document.getElementById('btn-clear-search');
+  const btnRecentLocal = document.getElementById('btn-recent-local');
   const catButtons = document.querySelectorAll('.cat-btn');
   const offlineBadge = document.getElementById('offline-badge');
 
@@ -91,6 +97,7 @@
   const internetModal = document.getElementById('internet-modal');
   const internetSearchForm = document.getElementById('internet-search-form');
   const internetQuery = document.getElementById('internet-query');
+  const btnRecentInternet = document.getElementById('btn-recent-internet');
   const internetStatus = document.getElementById('internet-status');
   const internetResults = document.getElementById('internet-results');
   const suggestChips = document.querySelectorAll('.chip-suggest');
@@ -222,6 +229,59 @@
     toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 3000);
   }
 
+  function parseBookYear(val) {
+    if (val === null || val === undefined || val === '') return null;
+    if (Array.isArray(val)) {
+      const years = val.map(parseBookYear).filter((y) => y !== null);
+      return years.length > 0 ? Math.max(...years) : null;
+    }
+    if (typeof val === 'number' && Number.isFinite(val)) {
+      const yr = Math.trunc(val);
+      return yr >= 1000 && yr <= 2100 ? yr : null;
+    }
+    const matches = String(val).match(/\b(1[0-9]{3}|20[0-9]{2}|2100)\b/g);
+    if (!matches || matches.length === 0) return null;
+    const yr = Number(matches[matches.length - 1]);
+    return yr >= 1000 && yr <= 2100 ? yr : null;
+  }
+
+  function normalizeLanguageCode(lang) {
+    const raw = String(lang || '').toLowerCase().trim();
+    if (!raw) return '';
+    if (raw === 'pt' || raw.startsWith('pt-') || raw.startsWith('pt_') || raw === 'por' || raw.includes('portug')) {
+      return 'pt';
+    }
+    return raw;
+  }
+
+  function isPortugueseBook(item) {
+    if (!item) return false;
+    if (normalizeLanguageCode(item.language) === 'pt') return true;
+    if (Array.isArray(item.languages)) {
+      return item.languages.some((l) => normalizeLanguageCode(l) === 'pt');
+    }
+    return false;
+  }
+
+  function formatLanguageLabel(lang) {
+    const code = normalizeLanguageCode(lang) || 'pt';
+    if (code === 'pt') return 'Português (pt)';
+    return code.toUpperCase();
+  }
+
+  function compareBooksByPtAndRecency(a, b) {
+    const ptDiff = (isPortugueseBook(b) ? 1 : 0) - (isPortugueseBook(a) ? 1 : 0);
+    if (ptDiff !== 0) return ptDiff;
+    const edDiff = (b.hasPtEdition ? 1 : 0) - (a.hasPtEdition ? 1 : 0);
+    if (edDiff !== 0) return edDiff;
+    const yearA = parseBookYear(a.year);
+    const yearB = parseBookYear(b.year);
+    if (yearA !== null && yearB !== null && yearB !== yearA) return yearB - yearA;
+    if (yearB !== null && yearA === null) return 1;
+    if (yearA !== null && yearB === null) return -1;
+    return (b.ptPriority || 0) - (a.ptPriority || 0);
+  }
+
   // Bookshelf Rendering
   function renderShelf() {
     const allBooks = getAllBooks();
@@ -235,24 +295,35 @@
       } else if (activeCategory !== 'todos' && book.category !== activeCategory) {
         return false;
       }
+      if (recentOnlyLocal) {
+        const yr = parseBookYear(book.year);
+        if (yr === null || yr < RECENT_BOOK_MIN_YEAR) return false;
+      }
       if (!q) return true;
       return `${book.title} ${book.author}`.toLowerCase().includes(q);
     });
 
-    if (activeCategory === 'lendo') {
+    if (activeCategory === 'lendo' && !q) {
       filtered.sort((a, b) => (progressMap[b.id]?.updatedAt || 0) - (progressMap[a.id]?.updatedAt || 0));
+    } else {
+      filtered.sort((a, b) => compareBooksByPtAndRecency(
+        { ...a, language: a.language || 'pt' },
+        { ...b, language: b.language || 'pt' }
+      ));
     }
 
-    shelfMeta.textContent = `${filtered.length} ${filtered.length === 1 ? 'livro disponível' : 'livros disponíveis'}`;
+    shelfMeta.textContent = `${filtered.length} ${filtered.length === 1 ? 'livro disponível' : 'livros disponíveis'}${recentOnlyLocal ? ' · desde 2024' : ''}`;
     booksGrid.innerHTML = '';
 
     if (filtered.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
       empty.textContent =
-        activeCategory === 'lendo'
-          ? 'Ainda não começaste a ler nenhum livro. Escolhe um livro na estante para começar!'
-          : 'Nenhum livro encontrado com essa pesquisa.';
+        recentOnlyLocal
+          ? 'Nenhum livro recente (a partir de 2024) encontrado na tua estante com esses critérios.'
+          : activeCategory === 'lendo'
+            ? 'Ainda não começaste a ler nenhum livro. Escolhe um livro na estante para começar!'
+            : 'Nenhum livro encontrado com essa pesquisa.';
       booksGrid.appendChild(empty);
       return;
     }
@@ -287,6 +358,16 @@
       catTag.className = 'book-cat-tag';
       catTag.textContent = CATEGORY_LABELS[book.category] || '📖 Livro';
       info.appendChild(catTag);
+
+      const yearVal = parseBookYear(book.year);
+      const langLabel = formatLanguageLabel(book.language || 'pt');
+      const metaBadges = document.createElement('div');
+      metaBadges.className = 'book-meta-badges';
+      metaBadges.innerHTML = `
+        <span class="meta-badge meta-badge-year">📅 ${yearVal ? escapeHtml(String(yearVal)) : 'Ano n/d'}</span>
+        <span class="meta-badge meta-badge-pt">🗣️ ${escapeHtml(langLabel)}</span>
+      `;
+      info.appendChild(metaBadges);
 
       const prog = progressMap[book.id];
       if (prog) {
@@ -860,6 +941,8 @@
         id: `device-${Date.now()}`,
         title,
         author,
+        year: new Date().getFullYear(),
+        language: 'pt',
         category,
         palette,
         coverEmoji: emojiMap[category] || '📖',
@@ -901,6 +984,15 @@
       btnClearSearch.classList.add('hidden');
       renderShelf();
     });
+
+    if (btnRecentLocal) {
+      btnRecentLocal.addEventListener('click', () => {
+        recentOnlyLocal = !recentOnlyLocal;
+        btnRecentLocal.classList.toggle('active', recentOnlyLocal);
+        btnRecentLocal.setAttribute('aria-pressed', String(recentOnlyLocal));
+        renderShelf();
+      });
+    }
 
     btnBackShelf.addEventListener('click', closeReader);
 
@@ -1002,6 +1094,8 @@
         id: `user-${Date.now()}`,
         title,
         author,
+        year: new Date().getFullYear(),
+        language: 'pt',
         category: addCategory.value,
         palette,
         coverEmoji: emojiMap[addCategory.value] || '🌹',
@@ -1024,6 +1118,19 @@
       e.preventDefault();
       searchUniversalBooks(internetQuery.value.trim());
     });
+
+    if (btnRecentInternet) {
+      btnRecentInternet.addEventListener('click', () => {
+        recentOnlyInternet = !recentOnlyInternet;
+        btnRecentInternet.classList.toggle('active', recentOnlyInternet);
+        btnRecentInternet.setAttribute('aria-pressed', String(recentOnlyInternet));
+        if (lastInternetResults.length > 0) {
+          applyAndRenderInternetResults();
+        } else {
+          searchUniversalBooks(internetQuery.value.trim());
+        }
+      });
+    }
 
     suggestChips.forEach((chip) => {
       chip.addEventListener('click', () => {
@@ -1219,6 +1326,9 @@
         onlineUrl: `https://www.gutenberg.org/ebooks/${b.id}`,
         title: b.title || 'Sem Título',
         author,
+        language: 'pt',
+        hasPtEdition: true,
+        year: null,
         subjects: b.subjects || [],
         bookshelves: b.bookshelves || [],
         coverUrl: b.formats && b.formats['image/jpeg'] ? b.formats['image/jpeg'] : ''
@@ -1254,7 +1364,9 @@
         title: d.title,
         author,
         publisher: Array.isArray(d.publisher) ? d.publisher.join(', ') : (d.publisher || ''),
-        year: d.year || '',
+        year: parseBookYear(d.year),
+        language: 'pt',
+        hasPtEdition: true,
         pages: d.imagecount ? Number(d.imagecount) : null,
         coverUrl: `https://archive.org/services/img/${encodeURIComponent(d.identifier)}`
       });
@@ -1263,32 +1375,82 @@
   }
 
   async function fetchOpenLibraryPt(query) {
-    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&language=por&has_fulltext=true&ebook_access=public&limit=20&fields=key,title,author_name,language,ia,ebook_access,public_scan_b,number_of_pages_median,first_publish_year,cover_i`;
+    const baseQ = query ? `${query} language:por` : 'romance language:por';
+    const fields = 'key,title,author_name,language,ia,ebook_access,public_scan_b,number_of_pages_median,first_publish_year,publish_year,cover_i,editions,editions.key,editions.title,editions.language,editions.publish_date,editions.cover_i,editions.publisher';
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(baseQ)}&sort=new&limit=30&fields=${fields}`;
     const res = await fetchWithTimeout(url, 8000);
     if (!res.ok) throw new Error('OL error');
     const data = await res.json();
     const docs = Array.isArray(data.docs) ? data.docs : [];
     const results = [];
     for (const d of docs) {
-      if (d.ebook_access !== 'public' || d.public_scan_b !== true) continue;
-      const iaId = Array.isArray(d.ia) && d.ia.length > 0 ? d.ia[0] : null;
-      if (!iaId) continue;
-      if (d.number_of_pages_median && Number(d.number_of_pages_median) < 15) continue;
-      const langs = Array.isArray(d.language) ? d.language : [];
-      if (!langs.includes('por')) continue;
+      const edDocs = Array.isArray(d.editions?.docs) ? d.editions.docs : [];
+      const ptEdition = edDocs.find((ed) => Array.isArray(ed.language) && ed.language.some((l) => normalizeLanguageCode(l) === 'pt')) || edDocs[0] || null;
+      const workLangs = Array.isArray(d.language) ? d.language.map(normalizeLanguageCode) : [];
+      const hasPt = workLangs.includes('pt') || (ptEdition && Array.isArray(ptEdition.language) && ptEdition.language.some((l) => normalizeLanguageCode(l) === 'pt'));
+      if (!hasPt) continue;
+
+      const title = (ptEdition && ptEdition.title) ? ptEdition.title : (d.title || 'Sem Título');
       const author = Array.isArray(d.author_name) ? d.author_name.join(', ') : 'Autor Desconhecido';
-      if (isLikelyForeignTitle(d.title, author)) continue;
+      if (!ptEdition && isLikelyForeignTitle(title, author)) continue;
+
+      const edYear = ptEdition ? parseBookYear(ptEdition.publish_date) : null;
+      const maxPubYear = parseBookYear(d.publish_year);
+      const year = edYear || maxPubYear || parseBookYear(d.first_publish_year);
+
+      const iaId = Array.isArray(d.ia) && d.ia.length > 0 ? d.ia[0] : null;
+      const isPublicDownload = d.ebook_access === 'public' && d.public_scan_b === true && Boolean(iaId);
+      const coverId = (ptEdition && ptEdition.cover_i) || d.cover_i;
+      const publisher = (ptEdition && (Array.isArray(ptEdition.publisher) ? ptEdition.publisher.join(', ') : ptEdition.publisher)) || '';
+      const onlineKey = (ptEdition && ptEdition.key) || d.key;
+
       results.push({
-        source: 'archive',
+        source: isPublicDownload ? 'archive' : 'openlibrary',
         sourceLabel: 'Open Library',
-        id: `ia-${iaId}`,
-        identifier: iaId,
-        onlineUrl: d.key ? `https://openlibrary.org${d.key}` : `https://archive.org/details/${iaId}`,
-        title: d.title || 'Sem Título',
+        id: isPublicDownload ? `ia-${iaId}` : `ol-${String(onlineKey || title).replace(/[^a-z0-9]+/gi, '_')}`,
+        identifier: isPublicDownload ? iaId : undefined,
+        onlineUrl: onlineKey ? `https://openlibrary.org${onlineKey}` : (iaId ? `https://archive.org/details/${iaId}` : ''),
+        title,
         author,
-        year: d.first_publish_year || '',
+        publisher,
+        year,
+        language: 'pt',
+        hasPtEdition: Boolean(ptEdition),
         pages: d.number_of_pages_median ? Number(d.number_of_pages_median) : null,
-        coverUrl: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : ''
+        coverUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : ''
+      });
+    }
+    return results;
+  }
+
+  async function fetchGoogleBooksPt(query) {
+    const q = query || 'romance';
+    const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&langRestrict=pt&orderBy=newest&maxResults=25`;
+    const res = await fetchWithTimeout(url, 8000);
+    if (!res.ok) throw new Error('Google Books error');
+    const data = await res.json();
+    const items = Array.isArray(data.items) ? data.items : [];
+    const results = [];
+    for (const item of items) {
+      const info = item.volumeInfo || {};
+      const lang = normalizeLanguageCode(info.language) || 'pt';
+      if (lang !== 'pt') continue;
+      const title = info.title || 'Sem Título';
+      const author = Array.isArray(info.authors) && info.authors.length > 0 ? info.authors.join(', ') : 'Autor Desconhecido';
+      const thumb = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || '';
+      results.push({
+        source: 'google',
+        sourceLabel: 'Google Books',
+        id: `gb-${item.id}`,
+        onlineUrl: info.infoLink || info.previewLink || '',
+        title,
+        author,
+        publisher: info.publisher || '',
+        year: parseBookYear(info.publishedDate),
+        language: 'pt',
+        hasPtEdition: true,
+        pages: info.pageCount ? Number(info.pageCount) : null,
+        coverUrl: thumb ? thumb.replace(/^http:\/\//i, 'https://') : ''
       });
     }
     return results;
@@ -1296,17 +1458,17 @@
 
   async function searchUniversalBooks(rawQuery) {
     const queries = mapSearchQuery(rawQuery);
-    internetStatus.textContent = 'A procurar livros gratuitos em Português (Gutendex, Internet Archive e Open Library)...';
+    internetStatus.textContent = 'A procurar livros em Português e edições recentes (Open Library, Google Books, Gutendex e Internet Archive)...';
     internetResults.innerHTML = '';
 
     const settled = await Promise.allSettled([
+      fetchOpenLibraryPt(queries.ol),
+      fetchGoogleBooksPt(rawQuery || queries.ol),
       fetchGutendexPt(queries.gutendex),
-      fetchInternetArchivePt(queries.ia),
-      fetchOpenLibraryPt(queries.ol)
+      fetchInternetArchivePt(queries.ia)
     ]);
 
-    const merged = [];
-    const seenKeys = new Set();
+    const mergedByKey = new Map();
     let anySuccess = false;
 
     for (const res of settled) {
@@ -1319,29 +1481,60 @@
             .replace(/[\u0300-\u036f]/g, '')
             .replace(/[^a-z0-9]+/g, ' ')
             .trim();
-          if (!seenKeys.has(normKey)) {
-            seenKeys.add(normKey);
-            item.ptPriority = scorePortugalPriority(item);
-            merged.push(item);
+          item.ptPriority = scorePortugalPriority(item);
+          const existing = mergedByKey.get(normKey);
+          if (!existing) {
+            mergedByKey.set(normKey, item);
+          } else {
+            const itemDownloadable = Boolean(item.identifier || item.formatInfo);
+            const existingDownloadable = Boolean(existing.identifier || existing.formatInfo);
+            const itemYr = parseBookYear(item.year) || 0;
+            const existingYr = parseBookYear(existing.year) || 0;
+            if ((itemDownloadable && !existingDownloadable) || itemYr > existingYr) {
+              mergedByKey.set(normKey, {
+                ...existing,
+                ...item,
+                year: itemYr >= existingYr ? item.year : existing.year,
+                coverUrl: item.coverUrl || existing.coverUrl
+              });
+            }
           }
         }
       }
     }
 
     if (!anySuccess) {
+      lastInternetResults = [];
       internetStatus.textContent = 'Não foi possível contactar os catálogos online. Verifica a ligação à internet.';
       return;
     }
 
-    merged.sort((a, b) => b.ptPriority - a.ptPriority);
+    const merged = Array.from(mergedByKey.values());
+    merged.sort(compareBooksByPtAndRecency);
+    lastInternetResults = merged;
+    applyAndRenderInternetResults();
+  }
 
-    if (merged.length === 0) {
-      internetStatus.textContent = 'Nenhum livro completo em Português encontrado com esse termo. Tenta outro autor ou sugestão.';
+  function applyAndRenderInternetResults() {
+    internetResults.innerHTML = '';
+    let visible = lastInternetResults;
+    if (recentOnlyInternet) {
+      visible = visible.filter((item) => {
+        const yr = parseBookYear(item.year);
+        return yr !== null && yr >= RECENT_BOOK_MIN_YEAR;
+      });
+    }
+
+    if (visible.length === 0) {
+      internetStatus.textContent = recentOnlyInternet
+        ? 'Nenhum livro em Português publicado a partir de 2024 encontrado com esse termo. Desativa o filtro de recentes ou tenta outro autor.'
+        : 'Nenhum livro em Português encontrado com esse termo. Tenta outro autor ou sugestão.';
       return;
     }
 
-    internetStatus.textContent = `${merged.length} livros completos em Português encontrados (edições e autores de Portugal primeiro):`;
-    renderUniversalResults(merged);
+    const filterNote = recentOnlyInternet ? ` · filtro desde ${RECENT_BOOK_MIN_YEAR}` : '';
+    internetStatus.textContent = `${visible.length} livros em Português encontrados (ordenados dos mais recentes para os mais antigos${filterNote}):`;
+    renderUniversalResults(visible);
   }
 
   function pickGutenbergFormat(formats) {
@@ -1387,13 +1580,19 @@
 
       const info = document.createElement('div');
       info.className = 'internet-book-info';
-      const yearTxt = item.year ? ` · ${item.year}` : '';
+      const yearVal = parseBookYear(item.year);
+      const yearLabel = yearVal ? String(yearVal) : 'n/d';
+      const langLabel = formatLanguageLabel(item.language || 'pt');
       const pagesTxt = item.pages ? ` · ${item.pages} págs.` : '';
       const ptBadge = item.ptPriority >= 40 ? '🇵🇹 Portugal · ' : '';
-      const sourceTxt = item.sourceLabel ? `${ptBadge}${item.sourceLabel}` : ptBadge.replace(/ · $/, '');
+      const sourceTxt = item.sourceLabel ? `${ptBadge}${item.sourceLabel}${pagesTxt}` : `${ptBadge.replace(/ · $/, '')}${pagesTxt}`;
       info.innerHTML = `
         <h3 class="internet-book-title">${escapeHtml(item.title)}</h3>
-        <div class="internet-book-author">${escapeHtml(item.author)}${escapeHtml(yearTxt)}${escapeHtml(pagesTxt)}</div>
+        <div class="internet-book-author">✍️ ${escapeHtml(item.author)}</div>
+        <div class="internet-book-badges">
+          <span class="meta-badge meta-badge-year">📅 Ano: ${escapeHtml(yearLabel)}</span>
+          <span class="meta-badge meta-badge-pt">🗣️ Idioma: ${escapeHtml(langLabel)}</span>
+        </div>
         ${sourceTxt ? `<div class="internet-book-source">${escapeHtml(sourceTxt)}</div>` : ''}
       `;
 
@@ -1474,6 +1673,8 @@
         gutenbergId: item.gutenbergId,
         title: item.title,
         author: item.author,
+        year: parseBookYear(item.year),
+        language: normalizeLanguageCode(item.language) || 'pt',
         category,
         palette,
         coverEmoji: emojiMap[category] || '📖',
